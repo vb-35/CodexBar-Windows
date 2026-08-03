@@ -2,7 +2,7 @@
 
 <img src="assets/icon.png" width="128" alt="CodexBar icon">
 
-An unofficial Windows system-tray port of [CodexBar](https://github.com/steipete/CodexBar) for viewing Codex usage limits.
+An unofficial Windows system-tray simpler port of [CodexBar](https://github.com/steipete/CodexBar) for viewing Codex usage limits.
 
 ## Features
 
@@ -11,7 +11,7 @@ An unofficial Windows system-tray port of [CodexBar](https://github.com/steipete
 
 ## Privacy and credentials
 
-CodexBar has no telemetry. Codex requests are sent directly to OpenAI and ChatGPT endpoints.
+CodexBar has no telemetry. Codex requests are sent directly to OpenAI endpoints.
 
 - Existing Codex credentials are read from `~/.codex/auth.json`.
 - Managed Codex accounts are copied to `~/.codexbar/codex-accounts/` so the Codex CLI can use them.
