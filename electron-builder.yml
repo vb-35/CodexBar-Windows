@@ -1,0 +1,20 @@
+appId: com.codexbar.windows
+productName: CodexBar
+directories:
+  output: out
+  buildResources: assets
+files:
+  - dist/**/*
+  - package.json
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: assets/icon.ico
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true

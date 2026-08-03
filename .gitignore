@@ -1,0 +1,11 @@
+node_modules/
+dist/
+out/
+*.js.map
+.vite/
+.env
+.env.*
+!.env.example
+auth.json
+*.pem
+*.key
