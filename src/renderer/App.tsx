@@ -91,9 +91,9 @@ function App() {
   return (
     <div className="app-shell">
       <div className="popover">
-        {currentView === 'main' && selectedProvider && providerEntries.length > 1 && (
+        {currentView === 'main' && (
           <div className="provider-tabs">
-            {providerEntries.map((provider) => (
+            {selectedProvider && providerEntries.length > 1 && providerEntries.map((provider) => (
               <button
                 key={provider.providerId}
                 className={`provider-tab ${selectedProvider.providerId === provider.providerId ? 'provider-tab--active' : ''}`}
@@ -105,6 +105,19 @@ function App() {
                 <img src={`./provider-logos/${provider.providerId}.svg`} alt="" width={24} height={24} />
               </button>
             ))}
+            <button
+              className="provider-tab refresh-button"
+              onClick={requestRefresh}
+              disabled={isRefreshing}
+              title={isRefreshing ? 'Refreshing…' : 'Refresh usage'}
+              aria-label="Refresh usage"
+              aria-busy={isRefreshing}
+            >
+              <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 12a9 9 0 1 1-9-9c2.5 0 4.8 1 6.5 2.5L21 8" />
+                <path d="M21 3v5h-5" />
+              </svg>
+            </button>
           </div>
         )}
 
@@ -195,7 +208,6 @@ function App() {
 
               <div className="action-list">
                 <ActionRow label="Settings" onClick={() => setCurrentView('settings')} />
-                <ActionRow label="Refresh" onClick={requestRefresh} trailingLabel={isRefreshing ? 'Working' : undefined} />
                 <ActionRow label="Quit" onClick={handleQuit} />
               </div>
             </>
@@ -210,17 +222,15 @@ function ActionRow(
   {
     label,
     onClick,
-    trailingLabel,
   }: {
     label: string;
     onClick: () => void;
-    trailingLabel?: string;
   },
 ) {
   return (
     <button className="action-row" onClick={onClick}>
       <span>{label}</span>
-      <span className="action-row-trailing">{trailingLabel || '>'}</span>
+      <span className="action-row-trailing">{'>'}</span>
     </button>
   );
 }

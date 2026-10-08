@@ -186,6 +186,15 @@ button {
   color: #267b86;
 }
 
+.refresh-button {
+  margin-left: auto;
+}
+
+.refresh-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .sheet-card {
   padding: 14px 0;
 }
