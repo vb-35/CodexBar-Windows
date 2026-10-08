@@ -87,6 +87,9 @@ export function ProviderCard({ data, accountLabel, accountKindLabel }: ProviderC
         <HistorySection title="Tokens · remote" history={remoteHistory} />
       )}
 
+      {data.history?.note && <div className="sheet-note">{data.history.note}</div>}
+      {data.history?.remoteError && <div className="sheet-note" role="status">{data.history.remoteError}</div>}
+
       {visibility.showCredits && data.credits && (
         <div className="sheet-section">
           <div className="usage-section-heading">
@@ -118,10 +121,10 @@ function HistorySection(
     <div className="sheet-section">
       <div className="section-heading">{title}</div>
       <div className="stats-grid stats-grid--history">
-        <StatCell label="Today" value={formatTokens(history.today.tokensUsed)} secondary={formatCost(history.today.estimatedCostUSD)} />
-        <StatCell label="Yesterday" value={formatTokens(history.yesterday.tokensUsed)} secondary={formatCost(history.yesterday.estimatedCostUSD)} />
-        <StatCell label="This week" value={formatTokens(history.week.tokensUsed)} secondary={formatCost(history.week.estimatedCostUSD)} />
-        <StatCell label="30 days" value={formatTokens(history.month30.tokensUsed)} secondary={formatCost(history.month30.estimatedCostUSD)} />
+        <StatCell label="Today" value={formatTokens(history.today.tokensUsed)} secondary={formatHistoryCost(history.today)} />
+        <StatCell label="Yesterday" value={formatTokens(history.yesterday.tokensUsed)} secondary={formatHistoryCost(history.yesterday)} />
+        <StatCell label="This week" value={formatTokens(history.week.tokensUsed)} secondary={formatHistoryCost(history.week)} />
+        <StatCell label="30 days" value={formatTokens(history.month30.tokensUsed)} secondary={formatHistoryCost(history.month30)} />
       </div>
     </div>
   );
@@ -193,6 +196,11 @@ function formatResetLabel(label: string): string {
 
 function formatCost(amount: number): string {
   return `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatHistoryCost(period: { estimatedCostUSD: number; costIncomplete?: boolean }): string {
+  if (!period.costIncomplete) return formatCost(period.estimatedCostUSD);
+  return period.estimatedCostUSD > 0 ? `${formatCost(period.estimatedCostUSD)} + unpriced` : 'Cost unavailable';
 }
 
 function formatTokens(tokens: number): string {

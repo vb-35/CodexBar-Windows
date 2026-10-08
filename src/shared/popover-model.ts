@@ -11,9 +11,12 @@ export interface PopoverUsageHistoryPeriod {
   tokensUsed: number;
   requestsCount: number;
   estimatedCostUSD: number;
+  costIncomplete?: boolean;
 }
 
 export interface PopoverUsageHistory {
+  note?: string;
+  remoteError?: string;
   local?: {
     today: PopoverUsageHistoryPeriod;
     yesterday: PopoverUsageHistoryPeriod;

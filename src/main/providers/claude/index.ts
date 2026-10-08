@@ -1,5 +1,6 @@
 import { getClaudeAccountState, loadClaudeAuth, refreshManagedClaudeAuth, resolveActiveClaudeHome } from '../../claude-accounts';
-import { ProviderFetcher, ProviderMetadata, UsageWindow } from '../types';
+import { ProviderFetcher, ProviderMetadata, UsageWindow, UsageSnapshot } from '../types';
+import { getClaudeUsageHistory } from './history';
 
 export const claudeMetadata: ProviderMetadata = {
   id: 'claude', displayName: 'Claude', sessionLabel: 'Session', weeklyLabel: 'Weekly',
@@ -18,7 +19,7 @@ function usageWindow(value: unknown, label: string, seconds: number): UsageWindo
 
 export const claudeProvider: ProviderFetcher = {
   id: 'claude', metadata: claudeMetadata,
-  async fetch(_config, appConfig) {
+  async fetch(_config, appConfig, onUsage) {
     const fetchedAt = Date.now();
     const home = resolveActiveClaudeHome(appConfig);
     let auth = loadClaudeAuth(home);
@@ -61,9 +62,12 @@ export const claudeProvider: ProviderFetcher = {
       if (!primary && !secondary && !additionalWindows.length) throw new Error('Claude returned no subscription usage windows.');
       const state = appConfig ? getClaudeAccountState(appConfig) : undefined;
       const account = state?.accounts.find((item) => item.id === state.activeAccountId);
-      return { providerId: 'claude', fetchedAt, usage: { primary, secondary, additionalWindows,
+      const usage: UsageSnapshot = { primary, secondary, additionalWindows,
         planType: typeof auth.oauth.subscriptionType === 'string' ? auth.oauth.subscriptionType : undefined,
-        identity: account?.email || auth.email || account?.label, updatedAt: fetchedAt, sourceLabel: 'OAuth' } };
+        identity: account?.email || auth.email || account?.label, updatedAt: fetchedAt, sourceLabel: 'OAuth' };
+      onUsage?.(usage);
+      usage.history = await getClaudeUsageHistory(home, appConfig?.remoteHistory);
+      return { providerId: 'claude', fetchedAt, usage };
     } catch (error) {
       return { providerId: 'claude', fetchedAt, error: error instanceof Error ? error.message : 'Could not fetch Claude usage.' };
     }

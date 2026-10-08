@@ -72,6 +72,7 @@ export interface ProviderConfig {
 export interface RemoteHistoryConfig {
   sshTarget: string;
   codexHome?: string;
+  claudeHome?: string;
 }
 
 /** Full application config */

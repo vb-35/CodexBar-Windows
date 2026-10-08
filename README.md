@@ -7,9 +7,10 @@ An unofficial Windows system-tray simpler port of [CodexBar](https://github.com/
 ## Features
 
 - Codex usage windows, reset times, account switching, and local session history.
-- Claude subscription usage windows, including Sonnet and Opus limits, with separate account switching.
+- Claude subscription usage windows, including Sonnet and Opus limits, with separate account switching and local token/cost history.
+- Add, import, select, re-authenticate, remove, and make CLI accounts for both providers. Both have tray account menus and dashboard shortcuts.
 - Compact account initials in the header; hover to see the account email.
-- Optional remote history over SSH without installing a helper or downloading session files.
+- Optional Codex and Claude remote history over SSH without installing a helper or downloading session files.
 
 ## Privacy and credentials
 
@@ -23,10 +24,13 @@ or import a Claude Code `.credentials.json` through the Claude tab or Settings â
 - Account tabs only change the account viewed in CodexBar. Cached usage appears immediately while fresh data loads in the background.
 - Existing Claude Code credentials are read from `~/.claude/.credentials.json` (or `CLAUDE_CONFIG_DIR`).
 - Managed Claude credentials are stored in `~/.codexbar/claude-accounts/`. CodexBar renews these private copies; Claude Code owns renewal of the ambient system login. Removing an account deletes only its managed directory.
-- When remote history is configured, **Make System** also selects file-based CLI credentials and replaces the remote Codex `auth.json` over SSH. The original auth and config are preserved once with `.codexbar-backup` suffixes.
+- **Make Claude Code CLI Account** replaces the local CLI credentials and account metadata, preserves unrelated CLI settings, and saves the previous login as a managed account. With remote history configured, it also copies those credentials and account metadata to the remote Claude home over SSH. Restart running local and remote Claude Code sessions afterward. An SSH failure is reported while keeping the successful local switch.
+- Claude history reads `projects/**/*.jsonl` in the selected account's CLI directory, including subagent transcripts. Repeated streaming messages and fork copies are counted once. History belongs to that directory and may include other logins; selecting a private account does not attach the ambient directory's history to it.
+- Claude costs are standard API-equivalent estimates using bundled [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing) verified on October 8, 2026, including cache reads and five-minute/one-hour cache writes. They are not subscription charges. Unknown model prices are shown as unavailable or partially unpriced.
+- When remote history is configured, **Make CLI Account** also updates that provider's remote login. Codex selects file-based storage and replaces `auth.json`; Claude replaces `.credentials.json` and updates `oauthAccount` in `.claude.json` while preserving unrelated settings. For the default `~/.claude` home, the profile is `~/.claude.json`; custom homes keep it inside that directory. Original remote auth and config/profile files are preserved once with `.codexbar-backup` suffixes. Claude writes credentials and backups with owner-only permissions and attempts to restore both files if replacement fails.
 - Remote history uses the system `ssh` client, your existing SSH config/keys, and Python 3 on the remote host. The bundled calculator is piped to Python over SSH and returns only aggregate JSON; it is not stored remotely.
 
-Configure an SSH alias or `user@host` and the remote Codex home in Settings. Leave the SSH target blank to disable remote history.
+Configure an SSH alias or `user@host` and the remote Codex and Claude homes in Settings (defaults: `~/.codex` and `~/.claude`). Remote Claude history uses the remote transcript directory and reports connection failures without hiding local totals. Leave the SSH target blank to disable remote history.
 
 Do not use the application on a shared Windows account unless you accept that local credential-storage model.
 

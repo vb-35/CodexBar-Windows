@@ -10,6 +10,7 @@ export interface AppConfig {
   remoteHistory: {
     sshTarget: string;
     codexHome: string;
+    claudeHome: string;
   };
   providerMetadata?: PopoverProviderMetadata[];
   codexAccountState: CodexAccountState;
@@ -35,6 +36,7 @@ export interface ElectronAPI {
   addClaudeAccount: () => Promise<CodexAccountOperationResult>;
   importClaudeAccount: () => Promise<CodexAccountOperationResult>;
   setActiveClaudeAccount: (accountId?: string) => Promise<CodexAccountOperationResult>;
+  promoteClaudeAccountToSystem: (accountId: string) => Promise<CodexAccountOperationResult>;
   reauthenticateClaudeAccount: (accountId: string) => Promise<CodexAccountOperationResult>;
   removeClaudeAccount: (accountId: string) => Promise<CodexAccountOperationResult>;
   openExternal: (url: string) => void;

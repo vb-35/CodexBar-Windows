@@ -1,6 +1,6 @@
 {
   "name": "codexbar-windows",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Codex usage limits in your Windows system tray",
   "main": "dist/main/index.js",
   "scripts": {

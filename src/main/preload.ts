@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   addClaudeAccount: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ACCOUNT_ACTION, 'add'),
   importClaudeAccount: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ACCOUNT_ACTION, 'import'),
   setActiveClaudeAccount: (accountId?: string) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ACCOUNT_ACTION, 'select', accountId),
+  promoteClaudeAccountToSystem: (accountId: string) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ACCOUNT_ACTION, 'promote', accountId),
   reauthenticateClaudeAccount: (accountId: string) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ACCOUNT_ACTION, 'reauth', accountId),
   removeClaudeAccount: (accountId: string) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ACCOUNT_ACTION, 'remove', accountId),
 

@@ -27,6 +27,200 @@ function writeAuth(home, token, extra = {}) {
 }
 const config = () => ({ version: 1, providers: [{ id: 'claude', enabled: true }] });
 
+test('Claude promotion preserves the previous login and unrelated CLI settings, then selects ambient auth', async (t) => {
+  const home = tempHome(t);
+  const ambientHome = path.join(home, '.claude');
+  const ambientFile = writeAuth(ambientHome, 'previous-token');
+  const profilePath = path.join(home, '.claude.json');
+  const oldProfile = { theme: 'dark', projects: { sample: { trusted: true } }, oauthAccount: {
+    emailAddress: 'old@example.com', accountUuid: 'old-id', organizationUuid: 'old-org',
+  } };
+  fs.writeFileSync(profilePath, JSON.stringify(oldProfile));
+  const previousBytes = fs.readFileSync(ambientFile, 'utf8');
+  const imported = writeAuth(path.join(home, 'import'), 'new-token');
+  t.mock.method(global, 'fetch', async () => ({ ok: true, json: async () => ({ account: { email: 'new@example.com', uuid: 'new-id' } }) }));
+  const initial = { ...config(), codexAccounts: { accounts: [], activeAccountId: 'codex-selected' } };
+  const added = await accounts.importClaudeAccount(initial, imported);
+  const selectedId = added.state.activeAccountId;
+  const promoted = await accounts.promoteClaudeAccountToSystem(added.config, selectedId);
+  assert.equal(promoted.ok, true);
+  assert.equal(promoted.state.activeAccountId, undefined);
+  assert.equal(promoted.state.systemAccountId, selectedId);
+  assert.equal(promoted.state.systemAccount.email, 'new@example.com');
+  assert.equal(promoted.config.codexAccounts.activeAccountId, 'codex-selected');
+  assert.equal(accounts.resolveActiveClaudeHome(promoted.config), ambientHome);
+  assert.equal(accounts.loadClaudeAuth().oauth.accessToken, 'new-token');
+  const profile = JSON.parse(fs.readFileSync(profilePath, 'utf8'));
+  assert.equal(profile.theme, 'dark');
+  assert.deepEqual(profile.projects, oldProfile.projects);
+  assert.equal(profile.oauthAccount.accountUuid, 'new-id');
+  assert.notEqual(profile.oauthAccount.organizationUuid, 'old-org', 'old account metadata is not reused');
+  const previous = promoted.state.accounts.find((account) => account.id !== selectedId);
+  assert.equal(previous.email, 'old@example.com');
+  assert.equal(fs.readFileSync(previous.managedAuthPath, 'utf8'), previousBytes);
+  assert.equal(accounts.loadClaudeAuth(previous.managedHomePath).accountId, 'old-id');
+  const second = await accounts.promoteClaudeAccountToSystem(promoted.config, selectedId);
+  assert.equal(second.state.accounts.length, 2, 'repeated promotion does not duplicate the backup');
+  const tabs = require('../dist/shared/popover-model.js').buildAccountTabs(promoted.state);
+  assert.deepEqual(tabs.map((tab) => tab.id), ['system', previous.id]);
+  assert.match(promoted.message, /Restart/);
+  assert.doesNotMatch(JSON.stringify(promoted.state), /new-token|previous-token/);
+});
+
+test('Claude promotion respects custom CLI homes and rolls back both files on a failed replacement', async (t) => {
+  const home = tempHome(t);
+  process.env.CLAUDE_CONFIG_DIR = path.join(home, 'custom-cli');
+  const ambient = writeAuth(process.env.CLAUDE_CONFIG_DIR, 'old');
+  const profile = path.join(process.env.CLAUDE_CONFIG_DIR, '.claude.json');
+  fs.writeFileSync(profile, JSON.stringify({ unrelated: true, oauthAccount: { emailAddress: 'old@example.com' } }));
+  const authBefore = fs.readFileSync(ambient, 'utf8'), profileBefore = fs.readFileSync(profile, 'utf8');
+  t.mock.method(global, 'fetch', async () => ({ ok: true, json: async () => ({ account: { email: 'new@example.com' } }) }));
+  const added = await accounts.importClaudeAccount(config(), writeAuth(path.join(home, 'import'), 'new'));
+  const originalRename = fs.renameSync;
+  let failed = false;
+  const mock = t.mock.method(fs, 'renameSync', (source, destination) => {
+    if (destination === ambient && !failed) { failed = true; throw new Error('disk failure'); }
+    return originalRename(source, destination);
+  });
+  const result = await accounts.promoteClaudeAccountToSystem(added.config, added.state.activeAccountId);
+  assert.equal(result.ok, false);
+  assert.equal(fs.readFileSync(ambient, 'utf8'), authBefore);
+  assert.equal(fs.readFileSync(profile, 'utf8'), profileBefore);
+  mock.mock.restore();
+  const success = await accounts.promoteClaudeAccountToSystem(added.config, added.state.activeAccountId);
+  assert.equal(success.ok, true);
+  assert.equal(accounts.loadClaudeAuth().oauth.accessToken, 'new');
+  assert.equal(JSON.parse(fs.readFileSync(profile, 'utf8')).unrelated, true);
+  assert.equal(fs.existsSync(path.join(home, '.claude.json')), false);
+  assert.equal((await accounts.promoteClaudeAccountToSystem(config(), 'missing')).ok, false);
+});
+
+test('viewing a Claude account never changes CLI credentials or connects over SSH', async (t) => {
+  const home = tempHome(t);
+  const ambient = writeAuth(path.join(home, '.claude'), 'ambient');
+  t.mock.method(global, 'fetch', async () => ({ ok: true, json: async () => ({ account: { email: 'private@example.com' } }) }));
+  const added = await accounts.importClaudeAccount(config(), writeAuth(path.join(home, 'import'), 'private'));
+  const children = require('node:child_process');
+  const ssh = t.mock.method(children, 'execFile', () => { throw new Error('Unexpected SSH'); });
+  const selected = accounts.selectClaudeAccount({ ...added.config, remoteHistory: { sshTarget: 'example.test' } }, added.state.activeAccountId);
+  assert.equal(selected.ok, true);
+  assert.equal(accounts.loadClaudeAuth().oauth.accessToken, 'ambient');
+  assert.equal(fs.readFileSync(ambient, 'utf8').includes('private'), false);
+  assert.equal(ssh.mock.callCount(), 0);
+});
+
+test('Claude remote sync sends credentials on stdin, preserves profiles and original backups, and restores failed writes', async (t) => {
+  const home = tempHome(t), children = require('node:child_process');
+  const python = ['python3', 'python'].find((binary) => children.spawnSync(binary, ['--version'], { windowsHide: true }).status === 0);
+  if (!python) return t.skip('Python is required to exercise the remote script');
+  const source = path.join(home, 'managed');
+  writeAuth(source, 'new-remote-token');
+  fs.writeFileSync(path.join(source, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'new@example.com', accountUuid: 'new-id' } }));
+  const remoteUser = path.join(home, 'remote-user');
+  let remoteHome, failReplacement = false;
+  t.mock.method(children, 'execFile', (binary, args, options, callback) => {
+    assert.equal(binary, 'ssh');
+    assert.equal(args.at(-2), 'remote-alias');
+    assert.equal(options.windowsHide, true);
+    assert.ok(args.includes('BatchMode=yes'));
+    const command = args.at(-1);
+    assert.doesNotMatch(command, /new-remote-token/);
+    const script = command.slice("python3 -c '".length, command.lastIndexOf("' '")).replaceAll("'\"'\"'", "'");
+    if (remoteHome.includes("'")) assert.ok(command.endsWith("'/srv/Claude'\"'\"'s home'"));
+    const failure = String.raw`import os
+original_replace=os.replace
+failed=False
+def injected_replace(src,dst):
+ global failed
+ if not failed and dst.endswith(".credentials.json"):
+  failed=True
+  raise OSError("injected write failure")
+ original_replace(src,dst)
+os.replace=injected_replace
+`;
+    return { stdin: { once() {}, end(input) {
+      const payload = JSON.parse(input);
+      assert.equal(payload.credentials.claudeAiOauth.accessToken, 'new-remote-token');
+      assert.equal(payload.oauthAccount.accountUuid, 'new-id');
+      const result = children.spawnSync(python, ['-c', (failReplacement ? failure : '') + script, remoteHome], {
+        input, encoding: 'utf8', windowsHide: true, env: { ...process.env, HOME: remoteUser, USERPROFILE: remoteUser },
+      });
+      callback(result.status === 0 ? null : new Error('remote script failed'), result.stdout, result.stderr);
+    } } };
+  });
+  for (const custom of [false, true]) {
+    remoteHome = custom ? path.join(remoteUser, "Claude's home") : path.join(remoteUser, '.claude');
+    const credentialFile = writeAuth(remoteHome, 'original-remote-token');
+    const profileFile = custom ? path.join(remoteHome, '.claude.json') : path.join(remoteUser, '.claude.json');
+    const profile = { theme: 'dark', oauthAccount: { emailAddress: 'old@example.com', organizationUuid: 'old-org' } };
+    fs.writeFileSync(profileFile, JSON.stringify(profile));
+    const beforeAuth = fs.readFileSync(credentialFile, 'utf8'), beforeProfile = fs.readFileSync(profileFile, 'utf8');
+    const config = { sshTarget: 'remote-alias', ...(custom ? { claudeHome: '/srv/Claude\'s home' } : {}) };
+    const authFile = path.join(remoteHome, '.credentials.json');
+    const configFile = custom ? path.join(remoteHome, '.claude.json') : profileFile;
+    await accounts.syncRemoteClaudeAuth(config, source);
+    assert.equal(accounts.loadClaudeAuth(remoteHome).oauth.accessToken, 'new-remote-token');
+    assert.deepEqual(JSON.parse(fs.readFileSync(configFile, 'utf8')), { theme: 'dark', oauthAccount: { emailAddress: 'new@example.com', accountUuid: 'new-id' } });
+    assert.equal(fs.readFileSync(authFile + '.codexbar-backup', 'utf8'), beforeAuth);
+    assert.equal(fs.readFileSync(configFile + '.codexbar-backup', 'utf8'), beforeProfile);
+    await accounts.syncRemoteClaudeAuth(config, source);
+    assert.equal(fs.readFileSync(authFile + '.codexbar-backup', 'utf8'), beforeAuth);
+    fs.writeFileSync(authFile, beforeAuth);
+    fs.writeFileSync(configFile, beforeProfile);
+    failReplacement = true;
+    await assert.rejects(accounts.syncRemoteClaudeAuth(config, source), /verify the remote CLI login/);
+    failReplacement = false;
+    assert.equal(fs.readFileSync(authFile, 'utf8'), beforeAuth);
+    assert.equal(fs.readFileSync(configFile, 'utf8'), beforeProfile);
+    assert.equal(fs.readdirSync(remoteHome).some((name) => name.endsWith('.tmp')), false);
+    if (process.platform !== 'win32') for (const file of [authFile, configFile, authFile + '.codexbar-backup', configFile + '.codexbar-backup']) {
+      assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+    }
+  }
+  remoteHome = path.join(remoteUser, 'fresh');
+  failReplacement = true;
+  await assert.rejects(accounts.syncRemoteClaudeAuth({ sshTarget: 'remote-alias', claudeHome: '/fresh' }, source), /sync failed/);
+  assert.deepEqual(fs.readdirSync(remoteHome), [], 'a failed first sync leaves no partial login');
+  failReplacement = false;
+  await accounts.syncRemoteClaudeAuth({ sshTarget: 'remote-alias', claudeHome: '/fresh' }, source);
+  assert.equal(accounts.loadClaudeAuth(remoteHome).oauth.accessToken, 'new-remote-token');
+});
+
+test('Claude promotion syncs the configured host after the local switch and reports SSH failures without exposing secrets', async (t) => {
+  const home = tempHome(t), children = require('node:child_process');
+  writeAuth(path.join(home, '.claude'), 'previous');
+  t.mock.method(global, 'fetch', async () => ({ ok: true, json: async () => ({ account: { email: 'new@example.com' } }) }));
+  const added = await accounts.importClaudeAccount(config(), writeAuth(path.join(home, 'import'), 'selected-secret'));
+  let fail = false;
+  const mock = t.mock.method(children, 'execFile', (_binary, args, _options, callback) => {
+    assert.equal(args.at(-2), 'remote-alias');
+    assert.equal(accounts.loadClaudeAuth().oauth.accessToken, 'selected-secret', 'local switch finishes before SSH');
+    return { stdin: { once() {}, end(input) {
+      assert.equal(JSON.parse(input).credentials.claudeAiOauth.accessToken, 'selected-secret');
+      callback(fail ? new Error('selected-secret') : null, '', 'selected-secret');
+    } } };
+  });
+  const remoteConfig = { ...added.config, remoteHistory: { sshTarget: 'remote-alias', claudeHome: '~/.claude' } };
+  const success = await accounts.promoteClaudeAccountToSystem(remoteConfig, added.state.activeAccountId);
+  assert.equal(success.ok, true);
+  assert.match(success.message, /locally and remotely/);
+  assert.equal(mock.mock.callCount(), 1);
+  fail = true;
+  const failed = await accounts.promoteClaudeAccountToSystem(success.config, added.state.activeAccountId);
+  assert.equal(failed.ok, true);
+  assert.equal(failed.state.systemAccountId, added.state.activeAccountId);
+  assert.match(failed.message, /updated locally.*Remote login sync failed/);
+  assert.doesNotMatch(failed.message, /selected-secret/);
+});
+
+test('Claude remote sync rejects invalid destinations and unreadable credentials before starting SSH', async (t) => {
+  const home = tempHome(t), children = require('node:child_process');
+  const mock = t.mock.method(children, 'execFile', () => { throw new Error('Unexpected SSH'); });
+  await assert.rejects(accounts.syncRemoteClaudeAuth({ sshTarget: '-oProxyCommand=bad' }, home), /Invalid SSH target/);
+  await assert.rejects(accounts.syncRemoteClaudeAuth({ sshTarget: 'remote-alias' }, home), /unreadable/);
+  assert.equal(mock.mock.callCount(), 0);
+});
+
 test('Claude import, deduplication, selection, removal, and config reload stay separate from Codex', async (t) => {
   const home = tempHome(t);
   const file = writeAuth(path.join(home, 'import'), 'alpha-token');

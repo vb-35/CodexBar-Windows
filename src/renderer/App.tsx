@@ -103,6 +103,7 @@ function App() {
                   title={provider.displayName}
                   aria-label={provider.displayName}
                   aria-pressed={selectedProvider.providerId === provider.providerId}
+                  disabled={accountBusy}
                 >
                   <img src={`./provider-logos/${provider.providerId}.svg`} alt="" width={20} height={20} />
                 </button>
@@ -153,7 +154,7 @@ function App() {
 
         <div className={`popover-scroll ${currentView !== 'main' ? 'popover-scroll--detail' : ''}`}>
           {currentView === 'settings' && (
-            <SettingsView onBack={() => setCurrentView('main')} />
+            <SettingsView initialProvider={isClaude ? 'claude' : 'codex'} onBack={() => setCurrentView('main')} />
           )}
 
           {currentView === 'main' && (
@@ -180,13 +181,13 @@ function App() {
                   <button className="pill-action icon-button" title={`Import ${isClaude ? 'credentials' : 'auth.json'}`} aria-label={`Import ${isClaude ? 'credentials' : 'auth.json'}`} disabled={accountBusy} onClick={() => runAccountAction(() => (isClaude ? window.electronAPI.importClaudeAccount : window.electronAPI.importCodexAccount)())}>
                     <Icon name="import" />
                   </button>
-                  {!isClaude && getPromotableAccountId(config) && (
+                  {getPromotableAccountId(accountState) && (
                     <button
                       className="pill-action icon-button"
-                      title="Make system account"
-                      aria-label="Make system account"
+                      title={`Make ${isClaude ? 'Claude Code' : 'Codex'} CLI account`}
+                      aria-label={`Make ${isClaude ? 'Claude Code' : 'Codex'} CLI account`}
                       disabled={accountBusy}
-                      onClick={() => runAccountAction(() => window.electronAPI.promoteCodexAccountToSystem(getPromotableAccountId(config)!))}
+                      onClick={() => runAccountAction(() => (isClaude ? window.electronAPI.promoteClaudeAccountToSystem : window.electronAPI.promoteCodexAccountToSystem)(getPromotableAccountId(accountState)!))}
                     >
                       <Icon name="system" />
                     </button>
@@ -226,10 +227,9 @@ function getSelectedAccountKindLabel(state?: CodexAccountState): string {
   return state.systemAccount ? 'System account' : 'No ambient system auth';
 }
 
-function getPromotableAccountId(config: AppConfig | null): string | undefined {
-  if (!config) return undefined;
-  const activeId = config.codexAccountState.activeAccountId;
-  if (!activeId || activeId === config.codexAccountState.systemAccountId) {
+function getPromotableAccountId(state?: CodexAccountState): string | undefined {
+  const activeId = state?.activeAccountId;
+  if (!activeId || activeId === state?.systemAccountId) {
     return undefined;
   }
   return activeId;

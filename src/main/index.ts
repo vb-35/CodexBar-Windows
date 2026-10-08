@@ -27,7 +27,8 @@ import {
   setActiveCodexAccount,
 } from './codex-accounts';
 import { loadConfig, saveConfig } from './config';
-import { getClaudeAccountState, importClaudeAccount, loginClaudeAccount, removeClaudeAccount, selectClaudeAccount } from './claude-accounts';
+import { getClaudeAccountState, importClaudeAccount, loginClaudeAccount, promoteClaudeAccountToSystem, removeClaudeAccount, selectClaudeAccount } from './claude-accounts';
+import { buildAccountMenu } from './account-menu';
 import { promoteWithDesktopRestart } from './codex-desktop';
 import { shutdownCodex } from './providers/codex';
 import { getAllMetadata } from './providers/registry';
@@ -161,50 +162,23 @@ function rebuildTrayMenu(): void {
 }
 
 function buildTrayMenuTemplate(): MenuItemConstructorOptions[] {
-  const accountState = getCodexAccountState(currentConfig);
-  const systemSubmenu: MenuItemConstructorOptions[] = accountState.accounts.map((account) => ({
-    label: formatTrayAccountLabel(account.label, account.id === accountState.systemAccountId, account.id === accountState.activeAccountId),
-    enabled: !codexAccountOperationInFlight && account.id !== accountState.systemAccountId,
-    click: () => makeSystemAccount(account.id),
-  }));
-
-  if (systemSubmenu.length === 0) {
-    systemSubmenu.push({ label: 'No managed accounts', enabled: false });
-  }
-
-  const activeSubmenu: MenuItemConstructorOptions[] = [
-    {
-      label: accountState.systemAccount ? `System: ${accountState.systemAccount.label}` : 'System account',
-      type: 'radio',
-      checked: !accountState.activeAccountId,
-      enabled: !codexAccountOperationInFlight,
-      click: () => runCodexAccountOperation(() => setActiveCodexAccount(currentConfig, undefined)),
-    },
-    ...accountState.accounts.map((account) => ({
-      label: account.label,
-      type: 'radio' as const,
-      checked: account.id === accountState.activeAccountId,
-      enabled: !codexAccountOperationInFlight,
-      click: () => runCodexAccountOperation(() => setActiveCodexAccount(currentConfig, account.id)),
-    })),
-  ];
-
   return [
     { label: 'Show CodexBar', click: () => toggleWindow() },
     { type: 'separator' },
     { label: 'Refresh Now', click: () => refreshManager?.refresh() },
     { label: 'Open Codex Dashboard', click: () => shell.openExternal('https://chatgpt.com/codex/settings/usage') },
+    { label: 'Open Claude Dashboard', click: () => shell.openExternal('https://claude.ai/settings/usage') },
     { type: 'separator' },
-    {
-      label: 'Codex Accounts',
-      submenu: [
-        { label: 'Add Account...', enabled: !codexAccountOperationInFlight, click: () => runCodexAccountOperation(() => addCodexAccountViaLogin(currentConfig)) },
-        { label: 'Import auth.json...', enabled: !codexAccountOperationInFlight, click: () => importCodexAccountFromPicker() },
-        { type: 'separator' },
-        { label: 'Use For CodexBar', submenu: activeSubmenu },
-        { label: 'System Account', submenu: systemSubmenu },
-      ],
-    },
+    buildAccountMenu('Codex', getCodexAccountState(currentConfig), codexAccountOperationInFlight, {
+      add: () => runCodexAccountOperation(() => addCodexAccountViaLogin(currentConfig)),
+      import: importCodexAccountFromPicker,
+      select: (id) => runCodexAccountOperation(() => setActiveCodexAccount(currentConfig, id)),
+      promote: makeSystemAccount,
+    }),
+    buildAccountMenu('Claude', getClaudeAccountState(currentConfig), codexAccountOperationInFlight, {
+      add: () => runClaudeAccountAction('add'), import: () => runClaudeAccountAction('import'),
+      select: (id) => runClaudeAccountAction('select', id), promote: (id) => runClaudeAccountAction('promote', id),
+    }, Boolean(currentConfig.remoteHistory?.sshTarget)),
     { type: 'separator' },
     {
       label: 'Quit CodexBar',
@@ -214,11 +188,6 @@ function buildTrayMenuTemplate(): MenuItemConstructorOptions[] {
       },
     },
   ];
-}
-
-function formatTrayAccountLabel(label: string, isSystem: boolean, isActive: boolean): string {
-  const tags = [isSystem ? 'system' : '', isActive ? 'active' : ''].filter(Boolean);
-  return tags.length > 0 ? `${label} (${tags.join(', ')})` : label;
 }
 
 function setupIPC(): void {
@@ -253,10 +222,11 @@ function setupIPC(): void {
       const codexHome = typeof remote.codexHome === 'string' && remote.codexHome.trim()
         ? remote.codexHome.trim()
         : '~/.codex';
+      const claudeHome = typeof remote.claudeHome === 'string' && remote.claudeHome.trim() ? remote.claudeHome.trim() : '~/.claude';
       if (sshTarget && (sshTarget.startsWith('-') || !/^[A-Za-z0-9_.@:\[\]-]+$/.test(sshTarget))) {
         throw new Error('SSH target may contain only a host, alias, user, dots, colons, brackets, and hyphens.');
       }
-      currentConfig.remoteHistory = sshTarget ? { sshTarget, codexHome } : undefined;
+      currentConfig.remoteHistory = sshTarget ? { sshTarget, codexHome, claudeHome } : undefined;
     }
 
     persistConfig();
@@ -276,13 +246,28 @@ function setupIPC(): void {
   ipcMain.handle(IPC_CHANNELS.CODEX_ACCOUNT_REMOVE, (_event, accountId: string) =>
     runCodexAccountOperation(() => removeCodexAccount(currentConfig, accountId)));
 
-  ipcMain.handle(IPC_CHANNELS.CLAUDE_ACCOUNT_ACTION, (_event, action: string, accountId?: string) => {
+  ipcMain.handle(IPC_CHANNELS.CLAUDE_ACCOUNT_ACTION, (_event, action: string, accountId?: string) => runClaudeAccountAction(action, accountId));
+
+  ipcMain.on(IPC_CHANNELS.OPEN_EXTERNAL, (_event, url: string) => {
+    if (isAllowedExternalUrl(url)) shell.openExternal(url);
+  });
+
+  ipcMain.on(IPC_CHANNELS.QUIT_APP, () => {
+    shutdownCodex();
+    app.quit();
+  });
+}
+
+function runClaudeAccountAction(action: string, accountId?: string) {
     if (action === 'get') return getClaudeAccountState(currentConfig);
     return runCodexAccountOperation(async () => {
       if (accountId !== undefined && typeof accountId !== 'string') throw new Error('Invalid Claude account ID.');
       switch (action) {
         case 'add': return loginClaudeAccount(currentConfig);
         case 'select': return selectClaudeAccount(currentConfig, accountId);
+        case 'promote':
+          if (!accountId) throw new Error('Select a Claude account to make the CLI account.');
+          return promoteClaudeAccountToSystem(currentConfig, accountId);
         case 'reauth':
           if (!accountId) throw new Error('Select a Claude account to re-authenticate.');
           return loginClaudeAccount(currentConfig, accountId);
@@ -301,16 +286,6 @@ function setupIPC(): void {
         default: throw new Error('Unknown Claude account action.');
       }
     }, 'claude');
-  });
-
-  ipcMain.on(IPC_CHANNELS.OPEN_EXTERNAL, (_event, url: string) => {
-    if (isAllowedExternalUrl(url)) shell.openExternal(url);
-  });
-
-  ipcMain.on(IPC_CHANNELS.QUIT_APP, () => {
-    shutdownCodex();
-    app.quit();
-  });
 }
 
 function makeSystemAccount(accountId: string): Promise<CodexAccountOperationResult> {
@@ -397,6 +372,7 @@ function makeRendererConfigPayload() {
     remoteHistory: {
       sshTarget: currentConfig.remoteHistory?.sshTarget || '',
       codexHome: currentConfig.remoteHistory?.codexHome || '~/.codex',
+      claudeHome: currentConfig.remoteHistory?.claudeHome || '~/.claude',
     },
     providerMetadata: getAllMetadata(),
     codexAccountState: getCodexAccountState(currentConfig),

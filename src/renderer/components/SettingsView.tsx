@@ -5,6 +5,7 @@ import { Icon } from './Icon';
 
 interface SettingsViewProps {
   onBack: () => void;
+  initialProvider: 'codex' | 'claude';
 }
 
 const REFRESH_OPTIONS = [
@@ -14,10 +15,10 @@ const REFRESH_OPTIONS = [
   { label: '15m', value: 900000 },
 ];
 
-export function SettingsView({ onBack }: SettingsViewProps) {
+export function SettingsView({ onBack, initialProvider }: SettingsViewProps) {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [saving, setSaving] = useState(false);
-  const [accountProvider, setAccountProvider] = useState<'codex' | 'claude'>('codex');
+  const [accountProvider, setAccountProvider] = useState<'codex' | 'claude'>(initialProvider);
   const isClaude = accountProvider === 'claude';
   const providerName = isClaude ? 'Claude' : 'Codex';
   const accountState = (isClaude ? config?.claudeAccountState : config?.codexAccountState) || null;
@@ -162,7 +163,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
           value={activeSelection}
           onChange={(event) => runAccountAction(() => (isClaude ? window.electronAPI.setActiveClaudeAccount : window.electronAPI.setActiveCodexAccount)(event.target.value || undefined))}
         >
-          <option value="">Ambient system account</option>
+          <option value="">{providerName} CLI account</option>
           {codexAccounts.filter((account) => account.id !== accountState?.systemAccountId).map((account) => (
             <option key={account.id} value={account.id}>{formatAccountLabel(account, accountState)}</option>
           ))}
@@ -170,7 +171,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
 
         <div className="settings-row">
           <div>
-            <div className="settings-row-label">System account</div>
+            <div className="settings-row-label">{providerName} CLI account</div>
             <div className="settings-row-sublabel">
               {accountState?.systemAccount ? accountState.systemAccount.label : isClaude ? 'No Claude Code login detected' : 'No ambient ~/.codex/auth.json detected'}
             </div>
@@ -196,7 +197,8 @@ export function SettingsView({ onBack }: SettingsViewProps) {
               account={account}
               accountState={accountState}
               disabled={accountBusy}
-              onMakeSystem={isClaude ? undefined : () => runAccountAction(() => window.electronAPI.promoteCodexAccountToSystem(account.id))}
+              remoteSyncEnabled={isClaude && Boolean(config.remoteHistory.sshTarget)}
+              onMakeSystem={() => runAccountAction(() => (isClaude ? window.electronAPI.promoteClaudeAccountToSystem : window.electronAPI.promoteCodexAccountToSystem)(account.id))}
               onReauthenticate={() => runAccountAction(() => (isClaude ? window.electronAPI.reauthenticateClaudeAccount : window.electronAPI.reauthenticateCodexAccount)(account.id))}
               onRemove={() => runAccountAction(() => (isClaude ? window.electronAPI.removeClaudeAccount : window.electronAPI.removeCodexAccount)(account.id))}
             />
@@ -233,9 +235,9 @@ export function SettingsView({ onBack }: SettingsViewProps) {
       </div>
 
       <div className="settings-section">
-        <div className="settings-section-title">Remote history</div>
+        <div className="settings-section-title">Remote history · Codex and Claude</div>
         <div className="settings-row-sublabel" style={{ marginBottom: '10px' }}>
-          Uses your OpenSSH config and keys. Make System also updates the remote CLI login.
+          Uses your OpenSSH config and keys to read usage totals. Make CLI Account also copies the selected provider's credentials to this remote host, preserving the original login in backup files.
         </div>
         <input
           className="settings-api-key-input"
@@ -256,6 +258,13 @@ export function SettingsView({ onBack }: SettingsViewProps) {
             ...config,
             remoteHistory: { ...config.remoteHistory, codexHome: event.target.value },
           })}
+        />
+        <input
+          className="settings-api-key-input settings-remote-path-input"
+          aria-label="Remote Claude home"
+          placeholder="Remote Claude home"
+          value={config.remoteHistory.claudeHome}
+          onChange={(event) => setConfig({ ...config, remoteHistory: { ...config.remoteHistory, claudeHome: event.target.value } })}
         />
         <div className="settings-actions settings-remote-actions">
           <button className="settings-action-btn icon-button" title="Save remote history" aria-label="Save remote history" disabled={saving} onClick={handleRemoteSave}><Icon name="save" /></button>
@@ -314,6 +323,7 @@ function AccountCard(
     account,
     accountState,
     disabled,
+    remoteSyncEnabled,
     onMakeSystem,
     onReauthenticate,
     onRemove,
@@ -321,6 +331,7 @@ function AccountCard(
     account: CodexStoredAccount;
     accountState: CodexAccountState | null;
     disabled: boolean;
+    remoteSyncEnabled: boolean;
     onMakeSystem?: () => void;
     onReauthenticate: () => void;
     onRemove: () => void;
@@ -336,7 +347,7 @@ function AccountCard(
         {isActive ? 'Active for CodexBar' : 'Stored managed account'}{isSystem ? ' • Matches system auth' : ''}
       </div>
       <div className="settings-actions settings-actions--card">
-        {onMakeSystem && <button className="settings-action-btn icon-button" title="Make system account" aria-label={`Make ${account.label} the system account`} disabled={disabled || isSystem} onClick={onMakeSystem}><Icon name="system" /></button>}
+        {onMakeSystem && <button className="settings-action-btn icon-button" title={isSystem && remoteSyncEnabled ? 'Sync remote CLI account' : 'Make CLI account'} aria-label={`Make ${account.label} the CLI account`} disabled={disabled || (isSystem && !remoteSyncEnabled)} onClick={onMakeSystem}><Icon name="system" /></button>}
         <button className="settings-action-btn settings-action-btn--secondary icon-button" title="Re-authenticate" aria-label={`Re-authenticate ${account.label}`} disabled={disabled} onClick={onReauthenticate}><Icon name="key" /></button>
         <button className="settings-action-btn settings-action-btn--danger icon-button" title="Remove account" aria-label={`Remove ${account.label}`} disabled={disabled} onClick={onRemove}><Icon name="remove" /></button>
       </div>
