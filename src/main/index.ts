@@ -33,6 +33,7 @@ import { shutdownCodex } from './providers/codex';
 import { getAllMetadata } from './providers/registry';
 import { CodexBarConfig, ProviderDisplayData } from './providers/types';
 import { RefreshManager } from './refresh';
+import { getPopoverBounds, POPOVER_SIZE } from './popover-bounds';
 import { IPC_CHANNELS } from '../shared/ipc-channels';
 import { isAllowedExternalUrl } from '../shared/external-url';
 import { CodexAccountOperationResult } from '../shared/codex-accounts';
@@ -51,8 +52,7 @@ if (!gotLock) {
 function createMainWindow(): BrowserWindow {
   const preloadPath = path.join(__dirname, 'preload.js');
   const window = new BrowserWindow({
-    width: 380,
-    height: 560,
+    ...POPOVER_SIZE,
     show: false,
     frame: false,
     resizable: false,
@@ -100,22 +100,8 @@ function positionWindow(): void {
   if (!mainWindow || !tray) return;
 
   const trayBounds = tray.getBounds();
-  const windowBounds = mainWindow.getBounds();
   const display = screen.getDisplayNearestPoint({ x: trayBounds.x, y: trayBounds.y });
-  const workArea = display.workArea;
-
-  let x = Math.round(trayBounds.x + trayBounds.width / 2 - windowBounds.width / 2);
-  let y = Math.round(trayBounds.y - windowBounds.height - 4);
-
-  if (x < workArea.x) x = workArea.x;
-  if (x + windowBounds.width > workArea.x + workArea.width) {
-    x = workArea.x + workArea.width - windowBounds.width;
-  }
-  if (y < workArea.y) {
-    y = trayBounds.y + trayBounds.height + 4;
-  }
-
-  mainWindow.setPosition(x, y, false);
+  mainWindow.setBounds(getPopoverBounds(trayBounds, display.workArea), false);
 }
 
 function createTrayIcon(): Electron.NativeImage {
@@ -422,6 +408,9 @@ app.on('ready', () => {
   currentConfig = reconcileCodexAccountsConfig(loadConfig());
   createTray();
   mainWindow = createMainWindow();
+  screen.on('display-added', positionWindow);
+  screen.on('display-removed', positionWindow);
+  screen.on('display-metrics-changed', positionWindow);
   setupIPC();
 
   refreshManager = new RefreshManager(
