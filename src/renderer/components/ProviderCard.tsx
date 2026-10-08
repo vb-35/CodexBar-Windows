@@ -3,6 +3,7 @@ import { getProviderSectionVisibility } from '../../shared/popover-model';
 import { ProviderUsageData } from '../hooks/useUsageData';
 import { ResetCountdown } from './ResetCountdown';
 import { UsageProgressBar } from './UsageProgressBar';
+import { Icon } from './Icon';
 
 interface ProviderCardProps {
   data: ProviderUsageData;
@@ -26,13 +27,13 @@ export function ProviderCard({ data, accountLabel, accountKindLabel }: ProviderC
             <div className="provider-badge" style={{ backgroundColor: data.iconColor }} />
             <div className="sheet-title">{data.displayName}</div>
           </div>
-          <div className="sheet-meta">
+          <div className="sheet-meta" title={`Last updated: ${formatUpdatedAt(data.updatedAt)}`}>
+            <Icon name="refresh" size={12} />
             <span>{formatUpdatedAt(data.updatedAt)}</span>
-            <span>{accountKindLabel}</span>
           </div>
         </div>
         <div className="provider-header-side">
-          <div className="provider-identity">{accountLabel}</div>
+          <div className="provider-identity" title={`${accountLabel} (${accountKindLabel})`}>{accountLabel}</div>
           {data.planType && <div className="provider-plan">{data.planType}</div>}
         </div>
       </div>
@@ -79,24 +80,19 @@ export function ProviderCard({ data, accountLabel, accountKindLabel }: ProviderC
       ))}
 
       {visibility.showHistory && localHistory && (
-        <HistorySection title="Token Usage (local logs)" history={localHistory} />
+        <HistorySection title="Tokens · local" history={localHistory} />
       )}
 
       {visibility.showHistory && remoteHistory && (
-        <HistorySection title="Token Usage (remote logs)" history={remoteHistory} />
+        <HistorySection title="Tokens · remote" history={remoteHistory} />
       )}
 
       {visibility.showCredits && data.credits && (
         <div className="sheet-section">
-          <div className="section-heading">Credits</div>
-          <UsageProgressBar
-            percent={data.credits.unlimited ? 100 : 0}
-            label=""
-            thresholds={[]}
-            isRemaining
-            leftLabel={data.credits.unlimited ? 'Unlimited' : '$0 left'}
-            rightLabel={data.credits.unlimited ? '' : `$${data.credits.remaining.toFixed(2)} available`}
-          />
+          <div className="usage-section-heading">
+            <div className="section-heading">Credits</div>
+            <div className="section-detail-strong">{data.credits.unlimited ? 'Unlimited' : `$${data.credits.remaining.toFixed(2)} available`}</div>
+          </div>
         </div>
       )}
 
@@ -123,9 +119,9 @@ function HistorySection(
       <div className="section-heading">{title}</div>
       <div className="stats-grid stats-grid--history">
         <StatCell label="Today" value={formatTokens(history.today.tokensUsed)} secondary={formatCost(history.today.estimatedCostUSD)} />
-        <StatCell label="Yesterday" value={formatTokens(history.yesterday.tokensUsed)} secondary={formatCost(history.yesterday.estimatedCostUSD)} align="right" />
+        <StatCell label="Yesterday" value={formatTokens(history.yesterday.tokensUsed)} secondary={formatCost(history.yesterday.estimatedCostUSD)} />
         <StatCell label="This week" value={formatTokens(history.week.tokensUsed)} secondary={formatCost(history.week.estimatedCostUSD)} />
-        <StatCell label="Last 30 days" value={formatTokens(history.month30.tokensUsed)} secondary={formatCost(history.month30.estimatedCostUSD)} align="right" />
+        <StatCell label="30 days" value={formatTokens(history.month30.tokensUsed)} secondary={formatCost(history.month30.estimatedCostUSD)} />
       </div>
     </div>
   );
@@ -148,14 +144,14 @@ function SheetSection(
 ) {
   return (
     <div className="sheet-section">
-      <div className="section-heading">{title}</div>
-      <UsageProgressBar percent={percent} thresholds={[20, 50]} isRemaining />
-      <div className="section-details">
+      <div className="usage-section-heading">
+        <div className="section-heading">{title}</div>
         <div className="section-detail-strong">{detailLeft}</div>
         <div className="section-detail-strong section-detail-strong--right">
           <ResetCountdown resetAt={resetAt} label={detailRight} />
         </div>
       </div>
+      <UsageProgressBar percent={percent} label={`${title}: ${detailLeft}`} thresholds={[20, 50]} isRemaining hideLabel />
     </div>
   );
 }
@@ -183,12 +179,12 @@ function StatCell(
 }
 
 function formatUpdatedAt(timestamp?: number): string {
-  if (!timestamp) return 'Waiting for refresh';
+  if (!timestamp) return 'Pending';
   const diffSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
-  if (diffSeconds < 60) return 'Updated just now';
+  if (diffSeconds < 60) return 'Just now';
   const diffMinutes = Math.floor(diffSeconds / 60);
-  if (diffMinutes < 60) return `Updated ${diffMinutes}m ago`;
-  return `Updated ${Math.floor(diffMinutes / 60)}h ago`;
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  return `${Math.floor(diffMinutes / 60)}h ago`;
 }
 
 function formatResetLabel(label: string): string {

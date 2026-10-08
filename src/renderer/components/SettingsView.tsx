@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { CodexAccountState, CodexStoredAccount } from '../../shared/codex-accounts';
 import { AppConfig } from '../hooks/useUsageData';
+import { Icon } from './Icon';
 
 interface SettingsViewProps {
   onBack: () => void;
@@ -121,7 +122,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
     return (
       <div className="settings-view">
         <div className="settings-header">
-          <button className="settings-back-btn" onClick={onBack}>←</button>
+          <button className="settings-back-btn icon-button" title="Back" aria-label="Back" onClick={onBack}><Icon name="back" /></button>
           <h2 className="settings-title">Settings</h2>
         </div>
         <div className="empty-state">
@@ -137,7 +138,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
   return (
     <div className="settings-view">
       <div className="settings-header">
-        <button className="settings-back-btn" onClick={onBack}>←</button>
+        <button className="settings-back-btn icon-button" title="Back" aria-label="Back" onClick={onBack}><Icon name="back" /></button>
         <h2 className="settings-title">Settings</h2>
       </div>
 
@@ -156,6 +157,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
         </div>
         <select
           className="settings-api-key-input"
+          aria-label="Active account"
           disabled={accountBusy}
           value={activeSelection}
           onChange={(event) => runAccountAction(() => (isClaude ? window.electronAPI.setActiveClaudeAccount : window.electronAPI.setActiveCodexAccount)(event.target.value || undefined))}
@@ -166,7 +168,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
           ))}
         </select>
 
-        <div className="settings-row" style={{ marginTop: '12px' }}>
+        <div className="settings-row">
           <div>
             <div className="settings-row-label">System account</div>
             <div className="settings-row-sublabel">
@@ -176,14 +178,14 @@ export function SettingsView({ onBack }: SettingsViewProps) {
         </div>
 
         <div className="settings-actions">
-          <button className="settings-action-btn" disabled={accountBusy} onClick={() => runAccountAction(() => (isClaude ? window.electronAPI.addClaudeAccount : window.electronAPI.addCodexAccount)())}>
-            Add Account
+          <button className="settings-action-btn icon-button" title="Add account" aria-label="Add account" disabled={accountBusy} onClick={() => runAccountAction(() => (isClaude ? window.electronAPI.addClaudeAccount : window.electronAPI.addCodexAccount)())}>
+            <Icon name="addAccount" />
           </button>
-          <button className="settings-action-btn" disabled={accountBusy} onClick={() => runAccountAction(() => (isClaude ? window.electronAPI.importClaudeAccount : window.electronAPI.importCodexAccount)())}>
-            Import {isClaude ? 'credentials' : 'auth.json'}
+          <button className="settings-action-btn icon-button" title={`Import ${isClaude ? 'credentials' : 'auth.json'}`} aria-label={`Import ${isClaude ? 'credentials' : 'auth.json'}`} disabled={accountBusy} onClick={() => runAccountAction(() => (isClaude ? window.electronAPI.importClaudeAccount : window.electronAPI.importCodexAccount)())}>
+            <Icon name="import" />
           </button>
-          <button className="settings-action-btn settings-action-btn--secondary" disabled={accountBusy} onClick={refreshAccounts}>
-            Refresh
+          <button className="settings-action-btn settings-action-btn--secondary icon-button" title="Refresh accounts" aria-label="Refresh accounts" disabled={accountBusy} onClick={refreshAccounts}>
+            <Icon name="refresh" />
           </button>
         </div>
 
@@ -256,7 +258,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
           })}
         />
         <div className="settings-actions settings-remote-actions">
-          <button className="settings-action-btn" disabled={saving} onClick={handleRemoteSave}>Save</button>
+          <button className="settings-action-btn icon-button" title="Save remote history" aria-label="Save remote history" disabled={saving} onClick={handleRemoteSave}><Icon name="save" /></button>
           <span className="settings-row-sublabel">Requires Python 3 on the remote machine; installs nothing.</span>
         </div>
         {remoteMessage && <div className="text-muted settings-message">{remoteMessage}</div>}
@@ -289,6 +291,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
           <label className="toggle-switch">
             <input
               type="checkbox"
+              aria-label="Launch at startup"
               checked={config.launchAtStartup}
               onChange={(event) => handleLaunchAtStartup(event.target.checked)}
             />
@@ -333,9 +336,9 @@ function AccountCard(
         {isActive ? 'Active for CodexBar' : 'Stored managed account'}{isSystem ? ' • Matches system auth' : ''}
       </div>
       <div className="settings-actions settings-actions--card">
-        {onMakeSystem && <button className="settings-action-btn" disabled={disabled || isSystem} onClick={onMakeSystem}>Make System</button>}
-        <button className="settings-action-btn settings-action-btn--secondary" disabled={disabled} onClick={onReauthenticate}>Re-authenticate</button>
-        <button className="settings-action-btn settings-action-btn--danger" disabled={disabled} onClick={onRemove}>Remove</button>
+        {onMakeSystem && <button className="settings-action-btn icon-button" title="Make system account" aria-label={`Make ${account.label} the system account`} disabled={disabled || isSystem} onClick={onMakeSystem}><Icon name="system" /></button>}
+        <button className="settings-action-btn settings-action-btn--secondary icon-button" title="Re-authenticate" aria-label={`Re-authenticate ${account.label}`} disabled={disabled} onClick={onReauthenticate}><Icon name="key" /></button>
+        <button className="settings-action-btn settings-action-btn--danger icon-button" title="Remove account" aria-label={`Remove ${account.label}`} disabled={disabled} onClick={onRemove}><Icon name="remove" /></button>
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ProviderCard } from './components/ProviderCard';
 import { SettingsView } from './components/SettingsView';
+import { Icon } from './components/Icon';
 import { AppConfig, ProviderUsageData, useUsageData } from './hooks/useUsageData';
 import {
   buildAccountTabs,
@@ -92,19 +93,42 @@ function App() {
     <div className="app-shell">
       <div className="popover">
         {currentView === 'main' && (
-          <div className="provider-tabs">
-            {selectedProvider && providerEntries.length > 1 && providerEntries.map((provider) => (
-              <button
-                key={provider.providerId}
-                className={`provider-tab ${selectedProvider.providerId === provider.providerId ? 'provider-tab--active' : ''}`}
-                onClick={() => setSelectedProviderId(provider.providerId)}
-                title={provider.displayName}
-                aria-label={provider.displayName}
-                aria-pressed={selectedProvider.providerId === provider.providerId}
-              >
-                <img src={`./provider-logos/${provider.providerId}.svg`} alt="" width={24} height={24} />
-              </button>
-            ))}
+          <div className="main-header">
+            <div className="provider-tabs" role="group" aria-label="Providers">
+              {selectedProvider && providerEntries.length > 1 && providerEntries.map((provider) => (
+                <button
+                  key={provider.providerId}
+                  className={`provider-tab ${selectedProvider.providerId === provider.providerId ? 'provider-tab--active' : ''}`}
+                  onClick={() => setSelectedProviderId(provider.providerId)}
+                  title={provider.displayName}
+                  aria-label={provider.displayName}
+                  aria-pressed={selectedProvider.providerId === provider.providerId}
+                >
+                  <img src={`./provider-logos/${provider.providerId}.svg`} alt="" width={20} height={20} />
+                </button>
+              ))}
+            </div>
+            {accountTabs.length > 0 && (
+              <div className="top-strip" role="group" aria-label="Accounts">
+                {accountTabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    className={`top-chip ${selectedAccountId === tab.id ? 'top-chip--active' : ''}`}
+                    onClick={() => {
+                      if (tab.id !== selectedAccountId) {
+                        void runAccountAction(() => (isClaude ? window.electronAPI.setActiveClaudeAccount : window.electronAPI.setActiveCodexAccount)(tab.id === 'system' ? undefined : tab.id));
+                      }
+                    }}
+                    disabled={accountBusy}
+                    title={`${tab.label} (${tab.subtitle})`}
+                    aria-label={`${tab.label} (${tab.subtitle})`}
+                    aria-pressed={selectedAccountId === tab.id}
+                  >
+                    {Array.from(tab.label.trim())[0]?.toLocaleUpperCase() || '?'}
+                  </button>
+                ))}
+              </div>
+            )}
             <button
               className="provider-tab refresh-button"
               onClick={requestRefresh}
@@ -113,40 +137,15 @@ function App() {
               aria-label="Refresh usage"
               aria-busy={isRefreshing}
             >
-              <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M21 12a9 9 0 1 1-9-9c2.5 0 4.8 1 6.5 2.5L21 8" />
-                <path d="M21 3v5h-5" />
-              </svg>
+              <Icon name="refresh" />
             </button>
-          </div>
-        )}
-
-        {currentView === 'main' && accountTabs.length > 0 && (
-          <div className="top-strip">
-            {accountTabs.map((tab) => (
-              <button
-                key={tab.id}
-                className={`top-chip ${selectedAccountId === tab.id ? 'top-chip--active' : ''}`}
-                onClick={() => {
-                  if (tab.id !== selectedAccountId) {
-                    void runAccountAction(() => (isClaude ? window.electronAPI.setActiveClaudeAccount : window.electronAPI.setActiveCodexAccount)(tab.id === 'system' ? undefined : tab.id));
-                  }
-                }}
-                disabled={accountBusy}
-                title={tab.label}
-                aria-label={`${tab.label} (${tab.subtitle})`}
-                aria-pressed={selectedAccountId === tab.id}
-              >
-                {Array.from(tab.label.trim())[0]?.toLocaleUpperCase() || '?'}
-              </button>
-            ))}
           </div>
         )}
 
         {currentView !== 'main' && (
           <div className="detail-header">
-            <button className="detail-back-btn" onClick={() => setCurrentView('main')}>
-              Back
+            <button className="detail-back-btn icon-button" title="Back" aria-label="Back" onClick={() => setCurrentView('main')}>
+              <Icon name="back" />
             </button>
             <div className="detail-title">Settings</div>
           </div>
@@ -173,65 +172,41 @@ function App() {
               )}
 
               <section className="sheet-card">
-                <div className="section-heading">Accounts</div>
-                <div className="account-summary">
-                  <div>
-                    <div className="account-summary-title">{getSelectedAccountLabel(accountState, selectedProvider)}</div>
-                    <div className="account-summary-subtitle">{getSelectedAccountKindLabel(accountState)}</div>
-                  </div>
-                  {isRefreshing && <div className="sheet-meta">Refreshing…</div>}
-                </div>
-                <div className="inline-actions">
-                  <button className="pill-action" disabled={accountBusy} onClick={() => runAccountAction(() => (isClaude ? window.electronAPI.addClaudeAccount : window.electronAPI.addCodexAccount)())}>
-                    Add Account
+                <div className="inline-actions" role="group" aria-label="Account actions">
+                  <span className="account-actions-label">Accounts</span>
+                  <button className="pill-action icon-button" title="Add account" aria-label="Add account" disabled={accountBusy} onClick={() => runAccountAction(() => (isClaude ? window.electronAPI.addClaudeAccount : window.electronAPI.addCodexAccount)())}>
+                    <Icon name="addAccount" />
                   </button>
-                  <button className="pill-action" disabled={accountBusy} onClick={() => runAccountAction(() => (isClaude ? window.electronAPI.importClaudeAccount : window.electronAPI.importCodexAccount)())}>
-                    Import {isClaude ? 'credentials' : 'auth.json'}
+                  <button className="pill-action icon-button" title={`Import ${isClaude ? 'credentials' : 'auth.json'}`} aria-label={`Import ${isClaude ? 'credentials' : 'auth.json'}`} disabled={accountBusy} onClick={() => runAccountAction(() => (isClaude ? window.electronAPI.importClaudeAccount : window.electronAPI.importCodexAccount)())}>
+                    <Icon name="import" />
                   </button>
                   {!isClaude && getPromotableAccountId(config) && (
                     <button
-                      className="pill-action"
+                      className="pill-action icon-button"
+                      title="Make system account"
+                      aria-label="Make system account"
                       disabled={accountBusy}
                       onClick={() => runAccountAction(() => window.electronAPI.promoteCodexAccountToSystem(getPromotableAccountId(config)!))}
                     >
-                      Make System
+                      <Icon name="system" />
                     </button>
                   )}
                 </div>
-                {accountMessage && <div className="sheet-note">{accountMessage}</div>}
+                {accountMessage && <div className="sheet-note" role="status">{accountMessage}</div>}
               </section>
-
-              <div className="action-list">
-                <ActionRow label="Usage" onClick={() => handleOpenExternal(selectedProviderMeta?.dashboardURL)} />
-                <ActionRow label="Status Page" onClick={() => handleOpenExternal(selectedProviderMeta?.statusPageURL)} />
-              </div>
-
-              <div className="action-list">
-                <ActionRow label="Settings" onClick={() => setCurrentView('settings')} />
-                <ActionRow label="Quit" onClick={handleQuit} />
-              </div>
             </>
           )}
         </div>
+        {currentView === 'main' && (
+          <div className="action-toolbar" role="group" aria-label="Application actions">
+            <button className="icon-button" title="Usage dashboard" aria-label="Usage dashboard" disabled={!selectedProviderMeta?.dashboardURL} onClick={() => handleOpenExternal(selectedProviderMeta?.dashboardURL)}><Icon name="usage" /></button>
+            <button className="icon-button" title="Status page" aria-label="Status page" disabled={!selectedProviderMeta?.statusPageURL} onClick={() => handleOpenExternal(selectedProviderMeta?.statusPageURL)}><Icon name="status" /></button>
+            <button className="icon-button" title="Settings" aria-label="Settings" onClick={() => setCurrentView('settings')}><Icon name="settings" /></button>
+            <button className="icon-button" title="Quit" aria-label="Quit" onClick={handleQuit}><Icon name="quit" /></button>
+          </div>
+        )}
       </div>
     </div>
-  );
-}
-
-function ActionRow(
-  {
-    label,
-    onClick,
-  }: {
-    label: string;
-    onClick: () => void;
-  },
-) {
-  return (
-    <button className="action-row" onClick={onClick}>
-      <span>{label}</span>
-      <span className="action-row-trailing">{'>'}</span>
-    </button>
   );
 }
 
