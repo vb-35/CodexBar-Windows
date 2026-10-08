@@ -50,6 +50,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   promoteClaudeAccountToSystem: (accountId: string) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ACCOUNT_ACTION, 'promote', accountId),
   reauthenticateClaudeAccount: (accountId: string) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ACCOUNT_ACTION, 'reauth', accountId),
   removeClaudeAccount: (accountId: string) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ACCOUNT_ACTION, 'remove', accountId),
+  startClocks: (target?: { provider: 'codex' | 'claude'; accountId: string }) => ipcRenderer.invoke(IPC_CHANNELS.CLOCK_START, target),
+  getClockState: () => ipcRenderer.invoke(IPC_CHANNELS.CLOCK_STATE_GET),
+  onClockStateChanged: (callback: (state: unknown) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, state: unknown) => callback(state);
+    ipcRenderer.on(IPC_CHANNELS.CLOCK_STATE_CHANGED, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.CLOCK_STATE_CHANGED, handler);
+  },
 
   openExternal: (url: string) => {
     ipcRenderer.send(IPC_CHANNELS.OPEN_EXTERNAL, url);

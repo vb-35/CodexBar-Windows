@@ -9,6 +9,8 @@ import {
   getProviderMetadataMap,
 } from '../shared/popover-model';
 import { CodexAccountOperationResult, CodexAccountState } from '../shared/codex-accounts';
+import { useAccountClocks } from './hooks/useAccountClocks';
+import { ClockStatus } from './components/ClockStatus';
 
 type View = 'main' | 'settings';
 
@@ -17,7 +19,9 @@ function App() {
   const [currentView, setCurrentView] = useState<View>('main');
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [selectedProviderId, setSelectedProviderId] = useState('');
-  const [accountBusy, setAccountBusy] = useState(false);
+  const [accountActionBusy, setAccountBusy] = useState(false);
+  const clocks = useAccountClocks();
+  const accountBusy = accountActionBusy || clocks.state.busy;
   const [accountMessage, setAccountMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -130,6 +134,10 @@ function App() {
                 ))}
               </div>
             )}
+            <button className="provider-tab" disabled={accountBusy} onClick={() => clocks.start()}
+              title="Start all clocks: skip running clocks, start idle accounts one at a time" aria-label="Start all clocks" aria-busy={clocks.state.busy}>
+              <Icon name="clock" />
+            </button>
             <button
               className="provider-tab refresh-button"
               onClick={requestRefresh}
@@ -154,7 +162,7 @@ function App() {
 
         <div className={`popover-scroll ${currentView !== 'main' ? 'popover-scroll--detail' : ''}`}>
           {currentView === 'settings' && (
-            <SettingsView initialProvider={isClaude ? 'claude' : 'codex'} onBack={() => setCurrentView('main')} />
+            <SettingsView initialProvider={isClaude ? 'claude' : 'codex'} onBack={() => setCurrentView('main')} clocks={clocks} />
           )}
 
           {currentView === 'main' && (
@@ -175,6 +183,10 @@ function App() {
               <section className="sheet-card">
                 <div className="inline-actions" role="group" aria-label="Account actions">
                   <span className="account-actions-label">Accounts</span>
+                  <button className="pill-action icon-button" disabled={accountBusy || !accountState || (!accountState.activeAccountId && !accountState.systemAccount)}
+                    title="Start clock for this account" aria-label="Start clock for this account" onClick={() => clocks.start({ provider: isClaude ? 'claude' : 'codex', accountId: selectedAccountId })}>
+                    <Icon name="clock" />
+                  </button>
                   <button className="pill-action icon-button" title="Add account" aria-label="Add account" disabled={accountBusy} onClick={() => runAccountAction(() => (isClaude ? window.electronAPI.addClaudeAccount : window.electronAPI.addCodexAccount)())}>
                     <Icon name="addAccount" />
                   </button>
@@ -194,6 +206,7 @@ function App() {
                   )}
                 </div>
                 {accountMessage && <div className="sheet-note" role="status">{accountMessage}</div>}
+                <ClockStatus state={clocks.state} />
               </section>
             </>
           )}

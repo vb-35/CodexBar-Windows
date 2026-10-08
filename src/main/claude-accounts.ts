@@ -9,7 +9,7 @@ export function getDefaultClaudeHome(): string {
   return process.env.CLAUDE_CONFIG_DIR?.trim() || path.join(process.env.USERPROFILE || process.env.HOME || '', '.claude');
 }
 
-function getProfilePath(home: string): string {
+export function getProfilePath(home: string): string {
   return path.resolve(home) === path.resolve(getDefaultClaudeHome()) && !process.env.CLAUDE_CONFIG_DIR
     ? path.join(path.dirname(home), '.claude.json') : path.join(home, '.claude.json');
 }
@@ -170,13 +170,7 @@ export async function loginClaudeAccount(config: CodexBarConfig, accountId?: str
   if (accountId && !getClaudeAccountState(config).accounts.some((account) => account.id === accountId)) {
     return result(config, false, 'Claude account not found.');
   }
-  let binary: string | undefined;
-  try {
-    binary = execFileSync('where.exe', ['claude'], { encoding: 'utf8', windowsHide: true, timeout: 5000 })
-      .split(/\r?\n/).map((line) => line.trim()).find((line) => /\.(exe|cmd)$/i.test(line));
-  } catch { /* Check the native install when it is absent from PATH. */ }
-  const native = path.join(process.env.USERPROFILE || process.env.HOME || '', '.local', 'bin', 'claude.exe');
-  if (!binary && fs.existsSync(native)) binary = native;
+  const binary = resolveClaudeBinary();
   if (!binary) return result(config, false, 'Claude Code CLI not found. Install Claude Code or import .credentials.json.');
 
   // A fresh directory keeps a canceled re-authentication from overwriting the saved account.
@@ -198,6 +192,17 @@ export async function loginClaudeAccount(config: CodexBarConfig, accountId?: str
   } catch (error) {
     return result(config, false, error instanceof Error ? error.message : 'Claude login failed.');
   }
+}
+
+export function resolveClaudeBinary(): string | undefined {
+  let binary: string | undefined;
+  try {
+    binary = execFileSync('where.exe', ['claude'], { encoding: 'utf8', windowsHide: true, timeout: 5000 })
+      .split(/\r?\n/).map((line) => line.trim()).find((line) => /\.(exe|cmd)$/i.test(line));
+  } catch { /* Check the native install when it is absent from PATH. */ }
+  const native = path.join(process.env.USERPROFILE || process.env.HOME || '', '.local', 'bin', 'claude.exe');
+  if (!binary && fs.existsSync(native)) binary = native;
+  return binary;
 }
 
 export function removeClaudeAccount(config: CodexBarConfig, accountId: string): AccountResult {

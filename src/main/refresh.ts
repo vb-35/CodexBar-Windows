@@ -62,6 +62,11 @@ export class RefreshManager {
     }
   }
 
+  /** Clock activation changes usage for accounts outside the current tab. */
+  invalidateCache(): void {
+    for (const snapshot of this.cache.values()) snapshot.refreshedAt = 0;
+  }
+
   /** Trigger an immediate refresh */
   async refresh(force = true): Promise<void> {
     const key = this.cacheKey;

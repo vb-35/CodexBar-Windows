@@ -6,6 +6,10 @@ directories:
 files:
   - dist/**/*
   - package.json
+# node-pty ships Node-API prebuilds compatible with both Node and Electron.
+npmRebuild: false
+asarUnpack:
+  - node_modules/node-pty/**/*
 win:
   target:
     - target: nsis

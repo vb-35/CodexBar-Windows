@@ -446,6 +446,22 @@ select:focus-visible {
   opacity: 0.55;
 }
 
+.clock-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+}
+
+.clock-button:disabled,
+.settings-action-btn:disabled {
+  opacity: 0.55;
+}
+
+.clock-error {
+  color: #9a3232;
+}
+
 .sheet-note {
   margin-top: 10px;
   font-size: 12px;

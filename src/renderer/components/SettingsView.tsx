@@ -2,10 +2,13 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { CodexAccountState, CodexStoredAccount } from '../../shared/codex-accounts';
 import { AppConfig } from '../hooks/useUsageData';
 import { Icon } from './Icon';
+import { useAccountClocks } from '../hooks/useAccountClocks';
+import { ClockStatus } from './ClockStatus';
 
 interface SettingsViewProps {
   onBack: () => void;
   initialProvider: 'codex' | 'claude';
+  clocks: ReturnType<typeof useAccountClocks>;
 }
 
 const REFRESH_OPTIONS = [
@@ -15,7 +18,7 @@ const REFRESH_OPTIONS = [
   { label: '15m', value: 900000 },
 ];
 
-export function SettingsView({ onBack, initialProvider }: SettingsViewProps) {
+export function SettingsView({ onBack, initialProvider, clocks }: SettingsViewProps) {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [saving, setSaving] = useState(false);
   const [accountProvider, setAccountProvider] = useState<'codex' | 'claude'>(initialProvider);
@@ -23,7 +26,8 @@ export function SettingsView({ onBack, initialProvider }: SettingsViewProps) {
   const providerName = isClaude ? 'Claude' : 'Codex';
   const accountState = (isClaude ? config?.claudeAccountState : config?.codexAccountState) || null;
   const [accountMessage, setAccountMessage] = useState<string | null>(null);
-  const [accountBusy, setAccountBusy] = useState(false);
+  const [accountActionBusy, setAccountBusy] = useState(false);
+  const accountBusy = accountActionBusy || clocks.state.busy;
   const [remoteMessage, setRemoteMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -178,6 +182,11 @@ export function SettingsView({ onBack, initialProvider }: SettingsViewProps) {
           </div>
         </div>
 
+        {accountState?.systemAccount && <button className="settings-action-btn clock-button" disabled={accountBusy}
+          aria-label={`Start clock for ${accountState.systemAccount.label}`} onClick={() => clocks.start({ provider: accountProvider, accountId: 'system' })}>
+          <Icon name="clock" /> Start CLI account clock
+        </button>}
+
         <div className="settings-actions">
           <button className="settings-action-btn icon-button" title="Add account" aria-label="Add account" disabled={accountBusy} onClick={() => runAccountAction(() => (isClaude ? window.electronAPI.addClaudeAccount : window.electronAPI.addCodexAccount)())}>
             <Icon name="addAccount" />
@@ -198,12 +207,14 @@ export function SettingsView({ onBack, initialProvider }: SettingsViewProps) {
               accountState={accountState}
               disabled={accountBusy}
               remoteSyncEnabled={isClaude && Boolean(config.remoteHistory.sshTarget)}
+              onStartClock={() => clocks.start({ provider: accountProvider, accountId: account.id })}
               onMakeSystem={() => runAccountAction(() => (isClaude ? window.electronAPI.promoteClaudeAccountToSystem : window.electronAPI.promoteCodexAccountToSystem)(account.id))}
               onReauthenticate={() => runAccountAction(() => (isClaude ? window.electronAPI.reauthenticateClaudeAccount : window.electronAPI.reauthenticateCodexAccount)(account.id))}
               onRemove={() => runAccountAction(() => (isClaude ? window.electronAPI.removeClaudeAccount : window.electronAPI.removeCodexAccount)(account.id))}
             />
           ))}
         </div>
+        <ClockStatus state={clocks.state} />
 
         {accountState?.missingSystemAuth && (
           <div className="text-muted" style={{ marginTop: '10px', fontSize: '12px' }}>
@@ -327,6 +338,7 @@ function AccountCard(
     onMakeSystem,
     onReauthenticate,
     onRemove,
+    onStartClock,
   }: {
     account: CodexStoredAccount;
     accountState: CodexAccountState | null;
@@ -335,6 +347,7 @@ function AccountCard(
     onMakeSystem?: () => void;
     onReauthenticate: () => void;
     onRemove: () => void;
+    onStartClock: () => void;
   },
 ) {
   const isSystem = accountState?.systemAccountId === account.id;
@@ -347,6 +360,7 @@ function AccountCard(
         {isActive ? 'Active for CodexBar' : 'Stored managed account'}{isSystem ? ' • Matches system auth' : ''}
       </div>
       <div className="settings-actions settings-actions--card">
+        <button className="settings-action-btn clock-button" aria-label={`Start clock for ${account.label}`} disabled={disabled} onClick={onStartClock}><Icon name="clock" /> Start clock</button>
         {onMakeSystem && <button className="settings-action-btn icon-button" title={isSystem && remoteSyncEnabled ? 'Sync remote CLI account' : 'Make CLI account'} aria-label={`Make ${account.label} the CLI account`} disabled={disabled || (isSystem && !remoteSyncEnabled)} onClick={onMakeSystem}><Icon name="system" /></button>}
         <button className="settings-action-btn settings-action-btn--secondary icon-button" title="Re-authenticate" aria-label={`Re-authenticate ${account.label}`} disabled={disabled} onClick={onReauthenticate}><Icon name="key" /></button>
         <button className="settings-action-btn settings-action-btn--danger icon-button" title="Remove account" aria-label={`Remove ${account.label}`} disabled={disabled} onClick={onRemove}><Icon name="remove" /></button>

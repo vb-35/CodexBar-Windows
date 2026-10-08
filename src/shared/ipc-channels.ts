@@ -19,6 +19,9 @@ export const enum IPC_CHANNELS {
   CODEX_ACCOUNT_REAUTH = 'codexbar:codex-account-reauth',
   CODEX_ACCOUNT_REMOVE = 'codexbar:codex-account-remove',
   CLAUDE_ACCOUNT_ACTION = 'codexbar:claude-account-action',
+  CLOCK_START = 'codexbar:clock-start',
+  CLOCK_STATE_GET = 'codexbar:clock-state-get',
+  CLOCK_STATE_CHANGED = 'codexbar:clock-state-changed',
   NAVIGATE = 'codexbar:navigate',
   WINDOW_VISIBILITY = 'codexbar:window-visibility',
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { CodexAccountOperationResult, CodexAccountState } from '../../shared/codex-accounts';
+import { ClockState, ClockTarget } from '../../shared/account-clocks';
 import type { PopoverProviderMetadata, PopoverProviderData as ProviderUsageData } from '../../shared/popover-model';
 export type { PopoverProviderData as ProviderUsageData } from '../../shared/popover-model';
 
@@ -18,6 +19,9 @@ export interface AppConfig {
 }
 
 export interface ElectronAPI {
+  startClocks: (target?: ClockTarget) => Promise<ClockState>;
+  getClockState: () => Promise<ClockState>;
+  onClockStateChanged: (callback: (state: ClockState) => void) => (() => void);
   onUsageUpdate: (callback: (data: Record<string, ProviderUsageData>) => void) => (() => void);
   onRefreshStarted: (callback: () => void) => (() => void);
   onRefreshCompleted: (callback: () => void) => (() => void);

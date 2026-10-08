@@ -10,7 +10,10 @@ An unofficial Windows system-tray simpler port of [CodexBar](https://github.com/
 - Claude subscription usage windows, including Sonnet and Opus limits, with separate account switching and local token/cost history.
 - Add, import, select, re-authenticate, remove, and make CLI accounts for both providers. Both have tray account menus and dashboard shortcuts.
 - Compact account initials in the header; hover to see the account email.
+- Start subscription clocks for one account or all accounts, skipping clocks that are already running.
 - Optional Codex and Claude remote history over SSH without installing a helper or downloading session files.
+
+The clock button beside Refresh checks all saved accounts and starts idle clocks one at a time. The clock button in the bottom account actions starts the selected account; Settings also has a button on each account. Each activation sends `Reply OK.` through an isolated interactive CLI using GPT-6-Luna with low reasoning or Claude Haiku 5.5 with low effort. This uses a small amount of subscription usage and requires an installed, authenticated CLI. The system login stays unchanged, and failures are reported per account.
 
 ## Privacy and credentials
 

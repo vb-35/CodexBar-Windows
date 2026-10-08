@@ -38,12 +38,17 @@ import { getPopoverBounds, POPOVER_SIZE } from './popover-bounds';
 import { IPC_CHANNELS } from '../shared/ipc-channels';
 import { isAllowedExternalUrl } from '../shared/external-url';
 import { CodexAccountOperationResult } from '../shared/codex-accounts';
+import { ClockState, ClockTarget } from '../shared/account-clocks';
+import { getClockTargets, startAccountClock, startClocksSequentially } from './account-clocks';
 
 let tray: Tray | null = null;
 let mainWindow: BrowserWindow | null = null;
 let refreshManager: RefreshManager | null = null;
 let currentConfig: CodexBarConfig;
 let codexAccountOperationInFlight = false;
+let clockState: ClockState = { busy: false, message: '', results: [] };
+let clockAbort: AbortController | undefined;
+let clockJob: Promise<ClockState> | undefined;
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -166,6 +171,7 @@ function buildTrayMenuTemplate(): MenuItemConstructorOptions[] {
     { label: 'Show CodexBar', click: () => toggleWindow() },
     { type: 'separator' },
     { label: 'Refresh Now', click: () => refreshManager?.refresh() },
+    { label: 'Start All Clocks', enabled: !codexAccountOperationInFlight, click: () => { void startClocks(); } },
     { label: 'Open Codex Dashboard', click: () => shell.openExternal('https://chatgpt.com/codex/settings/usage') },
     { label: 'Open Claude Dashboard', click: () => shell.openExternal('https://claude.ai/settings/usage') },
     { type: 'separator' },
@@ -247,6 +253,8 @@ function setupIPC(): void {
     runCodexAccountOperation(() => removeCodexAccount(currentConfig, accountId)));
 
   ipcMain.handle(IPC_CHANNELS.CLAUDE_ACCOUNT_ACTION, (_event, action: string, accountId?: string) => runClaudeAccountAction(action, accountId));
+  ipcMain.handle(IPC_CHANNELS.CLOCK_STATE_GET, () => clockState);
+  ipcMain.handle(IPC_CHANNELS.CLOCK_START, (_event, target?: ClockTarget) => startClocks(target));
 
   ipcMain.on(IPC_CHANNELS.OPEN_EXTERNAL, (_event, url: string) => {
     if (isAllowedExternalUrl(url)) shell.openExternal(url);
@@ -256,6 +264,36 @@ function setupIPC(): void {
     shutdownCodex();
     app.quit();
   });
+}
+
+async function startClocks(target?: ClockTarget): Promise<ClockState> {
+  if (target !== undefined && (!target || !['codex', 'claude'].includes(target.provider)
+    || typeof target.accountId !== 'string' || !target.accountId)) throw new Error('Invalid clock account.');
+  if (codexAccountOperationInFlight) throw new Error('Another account action is in progress.');
+  const all = getClockTargets(currentConfig);
+  const state = target?.provider === 'claude' ? getClaudeAccountState(currentConfig) : getCodexAccountState(currentConfig);
+  const targets = target ? [{ ...target, label: target.accountId === 'system'
+    ? state.systemAccount?.label || 'CLI account' : all.find((item) => item.provider === target.provider && item.accountId === target.accountId)?.label || 'Account' }] : all;
+  codexAccountOperationInFlight = true;
+  clockAbort = new AbortController();
+  const signal = clockAbort.signal;
+  try {
+    rebuildTrayMenu();
+    clockJob = startClocksSequentially(targets, (item) => startAccountClock(currentConfig, item, signal), (next) => {
+      clockState = next;
+      mainWindow?.webContents.send(IPC_CHANNELS.CLOCK_STATE_CHANGED, next);
+    }, signal);
+    return await clockJob;
+  } finally {
+    clockJob = undefined;
+    clockAbort = undefined;
+    codexAccountOperationInFlight = false;
+    rebuildTrayMenu();
+    if (!signal.aborted) {
+      refreshManager?.invalidateCache();
+      void refreshManager?.refresh();
+    }
+  }
 }
 
 function runClaudeAccountAction(action: string, accountId?: string) {
@@ -410,9 +448,14 @@ app.on('window-all-closed', () => {
   // keep tray app alive
 });
 
-app.on('before-quit', () => {
+app.on('before-quit', (event) => {
   refreshManager?.stop();
   shutdownCodex();
+  if (clockAbort && clockJob) {
+    event.preventDefault();
+    clockAbort.abort();
+    void clockJob.then(() => app.quit(), () => app.quit());
+  }
 });
 
 app.on('second-instance', () => {

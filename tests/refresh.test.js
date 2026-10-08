@@ -59,17 +59,24 @@ test('account switches reuse snapshots, deduplicate requests, and ignore late re
   requests[2].resolve({ providerId: 'codex', usage: usage('a') });
   await manual;
 
+  manager.invalidateCache();
+  manager.updateConfig(config('b'));
+  const afterClocks = manager.refresh(false);
+  assert.equal(requests.length, 4, 'clock activation invalidates snapshots for other accounts');
+  requests[3].resolve({ providerId: 'codex', usage: usage('b') });
+  await afterClocks;
+
   const changedAuth = config('a');
   changedAuth.codexAccounts.accounts[0].authFingerprint = 'replacement';
   manager.updateConfig(changedAuth);
   assert.deepEqual(display, {}, 'new credentials cannot reuse old usage');
   const replacement = manager.refresh(false);
-  assert.equal(requests.length, 4);
+  assert.equal(requests.length, 5);
   const disabled = config('a');
   disabled.providers[0].enabled = false;
   manager.updateConfig(disabled);
   await manager.refresh();
-  requests[3].resolve({ providerId: 'codex', usage: usage('a') });
+  requests[4].resolve({ providerId: 'codex', usage: usage('a') });
   await replacement;
   assert.deepEqual(display, {}, 'disabled provider stays hidden after a late response');
 });
