@@ -72,6 +72,20 @@ test('Claude onboarding trusts only the scratch folder before submitting; expire
   assert.equal(terminal.writes.includes('Reply OK.'), false);
 });
 
+test('Codex cursor redraws recognize the reply without newline boundaries and do not postpone completion', async (t) => {
+  const terminal = fakeTerminal();
+  const job = sendInteractiveClock('codex', 'cli', 'home', 'scratch', new AbortController().signal, () => terminal, 2000);
+  terminal.emit('100% context left');
+  terminal.emit('› Reply OK.\x1b[20;1H');
+  assert.equal(terminal.killed, false);
+  terminal.emit('• \x1b[0mO');
+  terminal.emit('K\x1b[22;1H›100% context left');
+  const redraws = setInterval(() => terminal.emit('\x1b[22;1H100% context left'), 40);
+  t.after(() => clearInterval(redraws));
+  try { await job; } finally { clearInterval(redraws); }
+  assert.equal(terminal.killed, true);
+});
+
 test('timeouts, aborts and early exits clean up the interactive terminal', async () => {
   for (const mode of ['timeout', 'abort', 'exit']) {
     const terminal = fakeTerminal();
@@ -79,7 +93,7 @@ test('timeouts, aborts and early exits clean up the interactive terminal', async
     const job = sendInteractiveClock('codex', 'cli', 'home', 'scratch', controller.signal, () => terminal, 20);
     if (mode === 'abort') controller.abort();
     if (mode === 'exit') terminal.exit();
-    await assert.rejects(job, /timed out|canceled|exited/);
+    await assert.rejects(job, /timeout|canceled|exited/);
     assert.equal(terminal.killed, mode !== 'exit');
   }
 });
@@ -110,7 +124,7 @@ test('Windows cleanup stops only the launched process tree and waits for ConPTY 
     setTimeout(() => terminal.exit(), 1000);
   });
   const job = sendInteractiveClock('codex', 'cli', 'home', 'scratch', new AbortController().signal, () => terminal, 20);
-  await assert.rejects(job, /timed out/);
+  await assert.rejects(job, /timeout/);
   assert.equal(terminal.killed, false, 'an exited process must not be killed again');
 });
 
@@ -152,6 +166,21 @@ test('idle clocks receive one interactive message and are verified afterward; fa
   t.mock.method(global, 'fetch', async () => ({ ok: false, status: 429 }));
   await assert.rejects(startAccountClock(config, target, new AbortController().signal), /HTTP 429/);
   assert.equal(messages, 1);
+});
+
+test('a missed CLI reply succeeds only when the provider confirms the clock started', async (t) => {
+  const { config, target } = managedClaude(t);
+  let requests = 0, active = true;
+  t.mock.method(global, 'fetch', async () => ({ ok: true, json: async () => ({ five_hour: {
+    resets_at: ++requests > 1 && active ? new Date(Date.now() + 60000).toISOString() : null,
+  } }) }));
+  t.mock.method(require('../dist/main/claude-accounts.js'), 'resolveClaudeBinary', () => 'claude.exe');
+  t.mock.method(interactive, 'sendInteractiveClock', async () => { throw new Error('No completed reply before timeout.'); });
+  assert.equal(await startAccountClock(config, target, new AbortController().signal), 'Clock running.');
+  assert.equal(requests, 2);
+  active = false; requests = 0;
+  await assert.rejects(startAccountClock(config, target, new AbortController().signal), /timeout/);
+  assert.equal(requests, 2);
 });
 
 test('Codex idle sliding resets are not treated as running, while pinned resets count even at zero usage', async (t) => {

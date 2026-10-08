@@ -108,6 +108,21 @@ export function SettingsView({ onBack, initialProvider, clocks }: SettingsViewPr
     }
   }, [config]);
 
+  const handleAccountSwitchOption = async (key: 'stopVSCode' | 'stopT3Code', enabled: boolean) => {
+    if (!config) return;
+    const codexAccountSwitch = { ...config.codexAccountSwitch, [key]: enabled };
+    setSaving(true);
+    setAccountMessage(null);
+    try {
+      await window.electronAPI.setConfig({ codexAccountSwitch });
+      setConfig((current) => current ? { ...current, codexAccountSwitch } : current);
+    } catch (error) {
+      setAccountMessage(error instanceof Error ? error.message : 'Could not save account-switch options.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleRemoteSave = useCallback(async () => {
     if (!config) return;
     setSaving(true);
@@ -215,6 +230,23 @@ export function SettingsView({ onBack, initialProvider, clocks }: SettingsViewPr
           ))}
         </div>
         <ClockStatus state={clocks.state} />
+
+        {!isClaude && <>
+          <div className="settings-row-sublabel" style={{ marginTop: '10px' }}>
+            When making a CLI account, optionally stop Codex backends while keeping these apps open. Finish active work first. Reload the VS Code window or restart the T3 Code Codex session afterward if it does not reconnect. Native Windows backends only; separate T3 Code sign-ins keep their own account.
+          </div>
+          {([
+            ['stopVSCode', 'Stop VS Code Codex backends'],
+            ['stopT3Code', 'Stop T3 Code Codex backends'],
+          ] as const).map(([key, label]) => <div className="settings-row" key={key}>
+            <div className="settings-row-label">{label}</div>
+            <label className="toggle-switch">
+              <input type="checkbox" aria-label={label} checked={config.codexAccountSwitch[key]}
+                disabled={saving || accountBusy} onChange={(event) => handleAccountSwitchOption(key, event.target.checked)} />
+              <span className="toggle-slider" />
+            </label>
+          </div>)}
+        </>}
 
         {accountState?.missingSystemAuth && (
           <div className="text-muted" style={{ marginTop: '10px', fontSize: '12px' }}>

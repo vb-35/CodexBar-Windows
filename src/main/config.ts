@@ -88,6 +88,10 @@ function normalizeConfig(config: CodexBarConfig): CodexBarConfig {
     launchAtStartup: config.launchAtStartup ?? false,
     remoteHistory: config.remoteHistory,
     codexAccounts: config.codexAccounts,
+    codexAccountSwitch: {
+      stopVSCode: config.codexAccountSwitch?.stopVSCode === true,
+      stopT3Code: config.codexAccountSwitch?.stopT3Code === true,
+    },
     claudeAccounts: config.claudeAccounts,
   });
 }

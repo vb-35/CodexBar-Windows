@@ -55,6 +55,14 @@ async function withTempHome(fn) {
   }
 }
 
+test('account-switch options default off and survive configuration reload', () => withTempHome(() => {
+  const { loadConfig, saveConfig } = require('../dist/main/config.js');
+  for (const options of [undefined, { stopVSCode: true, stopT3Code: false }, { stopVSCode: false, stopT3Code: true }, { stopVSCode: true, stopT3Code: true }]) {
+    saveConfig({ ...makeConfig(), codexAccountSwitch: options });
+    assert.deepEqual(loadConfig().codexAccountSwitch, options || { stopVSCode: false, stopT3Code: false });
+  }
+}));
+
 test('import adds first managed account and marks it active', () => withTempHome((homeRoot) => {
   const importPath = path.join(homeRoot, 'imports', 'auth.json');
   writeAuth(importPath, { email: 'alpha@example.com', accountId: 'workspace-alpha' });

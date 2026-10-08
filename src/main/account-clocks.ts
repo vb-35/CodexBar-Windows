@@ -90,7 +90,14 @@ export async function startAccountClock(config: CodexBarConfig, target: ClockTar
     signal.throwIfAborted();
     const binary = provider === 'codex' ? resolveCodexBinary() : resolveClaudeBinary();
     if (!binary) throw new Error(`${provider === 'codex' ? 'Codex' : 'Claude Code'} CLI is not installed.`);
-    await sendInteractiveClock(provider, binary, home!, cwd, signal);
+    try {
+      await sendInteractiveClock(provider, binary, home!, cwd, signal);
+    } catch (error) {
+      signal.throwIfAborted();
+      // A missed terminal reply must not report failure when the clock actually started.
+      if (await confirmClock(provider, home!, signal, 1).catch(() => false)) return 'Clock running.';
+      throw error;
+    }
     try {
       if (await confirmClock(provider, home!, signal)) return 'Clock running.';
       throw new Error('The provider has not reported an active clock yet.');

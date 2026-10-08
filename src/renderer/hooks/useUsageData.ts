@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { CodexAccountOperationResult, CodexAccountState } from '../../shared/codex-accounts';
+import { CodexAccountOperationResult, CodexAccountState, CodexAccountSwitchOptions } from '../../shared/codex-accounts';
 import { ClockState, ClockTarget } from '../../shared/account-clocks';
 import type { PopoverProviderMetadata, PopoverProviderData as ProviderUsageData } from '../../shared/popover-model';
 export type { PopoverProviderData as ProviderUsageData } from '../../shared/popover-model';
@@ -8,6 +8,7 @@ export interface AppConfig {
   enabledProviders: Record<string, boolean>;
   refreshIntervalMs: number;
   launchAtStartup: boolean;
+  codexAccountSwitch: CodexAccountSwitchOptions;
   remoteHistory: {
     sshTarget: string;
     codexHome: string;

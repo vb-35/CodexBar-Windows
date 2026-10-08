@@ -1,5 +1,10 @@
 export type CodexAccountSourceKind = 'managed' | 'system';
 
+export interface CodexAccountSwitchOptions {
+  stopVSCode: boolean;
+  stopT3Code: boolean;
+}
+
 export interface CodexAccountIdentity {
   email?: string;
   accountId?: string;

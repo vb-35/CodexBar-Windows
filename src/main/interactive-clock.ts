@@ -62,7 +62,9 @@ export function sendInteractiveClock(
       } else closed();
     };
     const cancel = () => finish(new Error('Clock activation canceled.'));
-    const timeout = setTimeout(() => finish(new Error('Interactive CLI timed out. Re-authenticate the account or check the CLI installation.')), timeoutMs);
+    const timeout = setTimeout(() => finish(new Error(sent
+      ? 'Message submitted, but no completed CLI reply was detected before timeout.'
+      : 'The interactive CLI did not become ready before timeout.')), timeoutMs);
     const exit = terminal.onExit(() => { exited = true; finish(new Error('Interactive CLI exited before replying. Check the account login and model availability.')); });
     const data = terminal.onData((chunk) => {
       if (finished) return;
@@ -72,8 +74,8 @@ export function sendInteractiveClock(
         finish(new Error('CLI login needs attention. Re-authenticate this account in Settings.')); return;
       }
       if (sent) {
-        if (/(?:^|[\r\n\x07])\s*(?:[•⏺●]\s*|claude:\s*)?OK\s*(?:[\r\n]|$)/m.test(output)) {
-          clearTimeout(settle);
+        // Cursor redraws can place the reply beside the footer without a newline.
+        if (!settle && /(?:[•⏺●]\s*|(?:^|[\r\n\x07])\s*(?:claude:\s*)?)OK\b/m.test(output)) {
           settle = setTimeout(() => finish(), 300);
         }
         return;

@@ -83,6 +83,7 @@ export interface CodexBarConfig {
   launchAtStartup?: boolean;
   remoteHistory?: RemoteHistoryConfig;
   codexAccounts?: import('../../shared/codex-accounts').CodexAccountsConfig;
+  codexAccountSwitch?: import('../../shared/codex-accounts').CodexAccountSwitchOptions;
   claudeAccounts?: import('../../shared/codex-accounts').CodexAccountsConfig;
 }
 

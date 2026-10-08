@@ -222,6 +222,14 @@ function setupIPC(): void {
       app.setLoginItemSettings({ openAtLogin: updates.launchAtStartup });
     }
 
+    if (updates.codexAccountSwitch && typeof updates.codexAccountSwitch === 'object') {
+      const options = updates.codexAccountSwitch as Record<string, unknown>;
+      if (typeof options.stopVSCode !== 'boolean' || typeof options.stopT3Code !== 'boolean') {
+        throw new Error('Invalid Codex account-switch options.');
+      }
+      currentConfig.codexAccountSwitch = { stopVSCode: options.stopVSCode, stopT3Code: options.stopT3Code };
+    }
+
     if (updates.remoteHistory && typeof updates.remoteHistory === 'object') {
       const remote = updates.remoteHistory as Record<string, unknown>;
       const sshTarget = typeof remote.sshTarget === 'string' ? remote.sshTarget.trim() : '';
@@ -327,12 +335,12 @@ function runClaudeAccountAction(action: string, accountId?: string) {
 }
 
 function makeSystemAccount(accountId: string): Promise<CodexAccountOperationResult> {
-  return runCodexAccountOperation(() => promoteWithDesktopRestart(currentConfig, accountId, async () => {
+  return runCodexAccountOperation(() => promoteWithDesktopRestart(currentConfig, accountId, async (clients) => {
     const options: Electron.MessageBoxOptions = {
       type: 'question',
-      title: 'Switch ChatGPT account',
-      message: 'Are you ready to close ChatGPT?',
-      detail: 'ChatGPT will be force closed to switch accounts, then reopened. Finish any ongoing work before continuing.',
+      title: 'Switch Codex account',
+      message: 'Stop the running Codex clients to switch accounts?',
+      detail: `${clients.join('\n')}\n\nFinish ongoing Codex work before continuing. Codex Desktop will reopen if closed. VS Code and T3 Code stay open; reload the VS Code window or restart the T3 Code Codex session afterward if it does not reconnect.`,
       buttons: ['Yes', 'No'],
       defaultId: 1,
       cancelId: 1,
@@ -407,6 +415,7 @@ function makeRendererConfigPayload() {
     enabledProviders,
     refreshIntervalMs: (currentConfig.refreshCadenceSeconds || 120) * 1000,
     launchAtStartup: currentConfig.launchAtStartup ?? false,
+    codexAccountSwitch: currentConfig.codexAccountSwitch ?? { stopVSCode: false, stopT3Code: false },
     remoteHistory: {
       sshTarget: currentConfig.remoteHistory?.sshTarget || '',
       codexHome: currentConfig.remoteHistory?.codexHome || '~/.codex',
