@@ -7,6 +7,7 @@ import {
   getDefaultAccountTabId,
   getProviderMetadataMap,
 } from '../shared/popover-model';
+import { CodexAccountOperationResult, CodexAccountState } from '../shared/codex-accounts';
 
 type View = 'main' | 'settings';
 
@@ -14,7 +15,6 @@ function App() {
   const { usageData, isRefreshing, requestRefresh } = useUsageData();
   const [currentView, setCurrentView] = useState<View>('main');
   const [config, setConfig] = useState<AppConfig | null>(null);
-  const [selectedAccountId, setSelectedAccountId] = useState('system');
   const [selectedProviderId, setSelectedProviderId] = useState('');
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountMessage, setAccountMessage] = useState<string | null>(null);
@@ -26,22 +26,24 @@ function App() {
     api.getConfig().then((nextConfig) => {
       setConfig(nextConfig);
     });
+    return api.onConfigChanged(setConfig);
   }, []);
 
-  const accountTabs = useMemo(
-    () => (config ? buildAccountTabs(config.codexAccountState) : []),
-    [config],
-  );
-  const providerEntries = useMemo(() => Object.values(usageData), [usageData]);
+  const providerEntries = useMemo(() => config?.providerMetadata
+    ? config.providerMetadata.filter((meta) => config.enabledProviders[meta.id]).map((meta) => usageData[meta.id] || {
+      providerId: meta.id, displayName: meta.displayName, iconColor: meta.id === 'claude' ? '#d97757' : '#49a3b0',
+    })
+    : Object.values(usageData), [config, usageData]);
+  const selectedProvider = providerEntries.find((item) => item.providerId === selectedProviderId) || providerEntries[0];
+  const isClaude = selectedProvider?.providerId === 'claude';
+  const accountState = config ? (isClaude ? config.claudeAccountState : config.codexAccountState) : undefined;
+  const accountTabs = useMemo(() => accountState ? buildAccountTabs(accountState) : [], [accountState]);
   const providerMetadata = useMemo(
     () => getProviderMetadataMap(config?.providerMetadata),
     [config],
   );
 
-  useEffect(() => {
-    if (!config) return;
-    setSelectedAccountId(getDefaultAccountTabId(config.codexAccountState));
-  }, [config]);
+  const selectedAccountId = accountState ? getDefaultAccountTabId(accountState) : 'system';
 
   useEffect(() => {
     if (providerEntries.length === 0) {
@@ -57,38 +59,18 @@ function App() {
     });
   }, [providerEntries]);
 
-  const selectedProvider = providerEntries.find((item) => item.providerId === selectedProviderId) || providerEntries[0];
   const selectedProviderMeta = selectedProvider ? providerMetadata[selectedProvider.providerId] : undefined;
 
-  const handleSwitchAccount = async (accountId: string) => {
-    setAccountBusy(true);
-    setAccountMessage(null);
+  useEffect(() => { setAccountMessage(null); }, [selectedProvider?.providerId]);
 
-    try {
-      const result = await window.electronAPI.setActiveCodexAccount(accountId === 'system' ? undefined : accountId);
-      setSelectedAccountId(accountId);
-      setConfig((current) => (current ? { ...current, codexAccountState: result.state } : current));
-      setAccountMessage(result.message);
-    } finally {
-      setAccountBusy(false);
-    }
-  };
-
-  const runAccountAction = async (action: () => Promise<any>) => {
+  const runAccountAction = async (action: () => Promise<CodexAccountOperationResult>) => {
     setAccountBusy(true);
     setAccountMessage(null);
 
     try {
       const result = await action();
-      if (result?.state) {
-        setConfig((current) => (current ? { ...current, codexAccountState: result.state } : current));
-      } else {
-        const nextConfig = await window.electronAPI.getConfig();
-        setConfig(nextConfig);
-      }
-      if (result?.message) {
-        setAccountMessage(result.message);
-      }
+      setConfig((current) => (current ? { ...current, [isClaude ? 'claudeAccountState' : 'codexAccountState']: result.state } : current));
+      setAccountMessage(result.message);
     } catch (error) {
       setAccountMessage(error instanceof Error ? error.message : 'Account action failed.');
     } finally {
@@ -109,17 +91,40 @@ function App() {
   return (
     <div className="app-shell">
       <div className="popover">
+        {currentView === 'main' && selectedProvider && providerEntries.length > 1 && (
+          <div className="provider-tabs">
+            {providerEntries.map((provider) => (
+              <button
+                key={provider.providerId}
+                className={`provider-tab ${selectedProvider.providerId === provider.providerId ? 'provider-tab--active' : ''}`}
+                onClick={() => setSelectedProviderId(provider.providerId)}
+                title={provider.displayName}
+                aria-label={provider.displayName}
+                aria-pressed={selectedProvider.providerId === provider.providerId}
+              >
+                <img src={`./provider-logos/${provider.providerId}.svg`} alt="" width={24} height={24} />
+              </button>
+            ))}
+          </div>
+        )}
+
         {currentView === 'main' && accountTabs.length > 0 && (
           <div className="top-strip">
             {accountTabs.map((tab) => (
               <button
                 key={tab.id}
                 className={`top-chip ${selectedAccountId === tab.id ? 'top-chip--active' : ''}`}
-                onClick={() => handleSwitchAccount(tab.id)}
+                onClick={() => {
+                  if (tab.id !== selectedAccountId) {
+                    void runAccountAction(() => (isClaude ? window.electronAPI.setActiveClaudeAccount : window.electronAPI.setActiveCodexAccount)(tab.id === 'system' ? undefined : tab.id));
+                  }
+                }}
                 disabled={accountBusy}
                 title={tab.label}
+                aria-label={`${tab.label} (${tab.subtitle})`}
+                aria-pressed={selectedAccountId === tab.id}
               >
-                {tab.label}
+                {Array.from(tab.label.trim())[0]?.toLocaleUpperCase() || '?'}
               </button>
             ))}
           </div>
@@ -141,30 +146,16 @@ function App() {
 
           {currentView === 'main' && (
             <>
-              {selectedProvider && providerEntries.length > 1 && (
-                <div className="provider-tabs">
-                  {providerEntries.map((provider) => (
-                    <button
-                      key={provider.providerId}
-                      className={`provider-tab ${selectedProvider.providerId === provider.providerId ? 'provider-tab--active' : ''}`}
-                      onClick={() => setSelectedProviderId(provider.providerId)}
-                    >
-                      {provider.displayName}
-                    </button>
-                  ))}
-                </div>
-              )}
-
               {selectedProvider ? (
                 <ProviderCard
                   data={selectedProvider}
-                  accountLabel={getSelectedAccountLabel(config, selectedProvider)}
-                  accountKindLabel={getSelectedAccountKindLabel(config)}
+                  accountLabel={getSelectedAccountLabel(accountState, selectedProvider)}
+                  accountKindLabel={getSelectedAccountKindLabel(accountState)}
                 />
               ) : (
                 <div className="sheet-card empty-sheet">
-                  <div className="sheet-title">No providers active</div>
-                  <p className="sheet-copy">Enable a provider in Settings to start tracking usage here.</p>
+                  <div className="sheet-title">{isRefreshing ? 'Loading account usage…' : 'No usage data yet'}</div>
+                  <p className="sheet-copy">{isRefreshing ? 'You can switch accounts while usage refreshes.' : 'Refresh usage or enable a provider in Settings.'}</p>
                 </div>
               )}
 
@@ -172,19 +163,19 @@ function App() {
                 <div className="section-heading">Accounts</div>
                 <div className="account-summary">
                   <div>
-                    <div className="account-summary-title">{getSelectedAccountLabel(config, selectedProvider)}</div>
-                    <div className="account-summary-subtitle">{getSelectedAccountKindLabel(config)}</div>
+                    <div className="account-summary-title">{getSelectedAccountLabel(accountState, selectedProvider)}</div>
+                    <div className="account-summary-subtitle">{getSelectedAccountKindLabel(accountState)}</div>
                   </div>
                   {isRefreshing && <div className="sheet-meta">Refreshing…</div>}
                 </div>
                 <div className="inline-actions">
-                  <button className="pill-action" disabled={accountBusy} onClick={() => runAccountAction(() => window.electronAPI.addCodexAccount())}>
+                  <button className="pill-action" disabled={accountBusy} onClick={() => runAccountAction(() => (isClaude ? window.electronAPI.addClaudeAccount : window.electronAPI.addCodexAccount)())}>
                     Add Account
                   </button>
-                  <button className="pill-action" disabled={accountBusy} onClick={() => runAccountAction(() => window.electronAPI.importCodexAccount())}>
-                    Import auth.json
+                  <button className="pill-action" disabled={accountBusy} onClick={() => runAccountAction(() => (isClaude ? window.electronAPI.importClaudeAccount : window.electronAPI.importCodexAccount)())}>
+                    Import {isClaude ? 'credentials' : 'auth.json'}
                   </button>
-                  {getPromotableAccountId(config) && (
+                  {!isClaude && getPromotableAccountId(config) && (
                     <button
                       className="pill-action"
                       disabled={accountBusy}
@@ -234,10 +225,8 @@ function ActionRow(
   );
 }
 
-function getSelectedAccountLabel(config: AppConfig | null, selectedProvider?: ProviderUsageData): string {
-  if (!config) return selectedProvider?.identity || 'System Account';
-
-  const state = config.codexAccountState;
+function getSelectedAccountLabel(state: CodexAccountState | undefined, selectedProvider?: ProviderUsageData): string {
+  if (!state) return selectedProvider?.identity || 'System Account';
   if (state.activeAccountId) {
     const active = state.accounts.find((account) => account.id === state.activeAccountId);
     return active?.email || active?.label || selectedProvider?.identity || 'Managed Account';
@@ -246,10 +235,10 @@ function getSelectedAccountLabel(config: AppConfig | null, selectedProvider?: Pr
   return state.systemAccount?.email || state.systemAccount?.label || selectedProvider?.identity || 'System Account';
 }
 
-function getSelectedAccountKindLabel(config: AppConfig | null): string {
-  if (!config) return 'Account';
-  if (config.codexAccountState.activeAccountId) return 'Managed account';
-  return config.codexAccountState.systemAccount ? 'System account' : 'No ambient system auth';
+function getSelectedAccountKindLabel(state?: CodexAccountState): string {
+  if (!state) return 'Account';
+  if (state.activeAccountId) return 'Managed account';
+  return state.systemAccount ? 'System account' : 'No ambient system auth';
 }
 
 function getPromotableAccountId(config: AppConfig | null): string | undefined {

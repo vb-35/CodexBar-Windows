@@ -5,15 +5,18 @@
 
 import { UsageProviderId, ProviderFetcher, ProviderMetadata } from './types';
 import { codexProvider, codexMetadata } from './codex/index';
+import { claudeProvider, claudeMetadata } from './claude/index';
 
 /** All registered provider fetchers */
 const providers: Map<UsageProviderId, ProviderFetcher> = new Map([
   ['codex', codexProvider],
+  ['claude', claudeProvider],
 ]);
 
 /** All registered provider metadata */
 const metadata: Map<UsageProviderId, ProviderMetadata> = new Map([
   ['codex', codexMetadata],
+  ['claude', claudeMetadata],
 ]);
 
 /** Get the fetcher for a provider ID */

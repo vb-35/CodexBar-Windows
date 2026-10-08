@@ -5,7 +5,7 @@
  */
 
 import { resolveActiveCodexTarget } from '../../codex-accounts';
-import { CodexBarConfig, ProviderConfig, ProviderFetchResult, ProviderFetcher, ProviderMetadata } from '../types';
+import { CodexBarConfig, ProviderConfig, ProviderFetchResult, ProviderFetcher, ProviderMetadata, UsageSnapshot } from '../types';
 import { fetchViaCLI, isAvailable as isCLIAvailable, shutdown as shutdownCLI } from './cli';
 import { loadCredentials } from './auth';
 import { getCodexUsageHistory } from './history';
@@ -27,7 +27,7 @@ export const codexProvider: ProviderFetcher = {
   id: 'codex',
   metadata: codexMetadata,
 
-  async fetch(config: ProviderConfig, appConfig?: CodexBarConfig): Promise<ProviderFetchResult> {
+  async fetch(config: ProviderConfig, appConfig?: CodexBarConfig, onUsage?: (usage: UsageSnapshot) => void): Promise<ProviderFetchResult> {
     const sourceMode = config.source || 'auto';
     const target = resolveActiveCodexTarget(appConfig || { version: 1, providers: [] });
     const codexHome = target.homePath;
@@ -79,6 +79,7 @@ export const codexProvider: ProviderFetcher = {
     }
 
     if (result.usage) {
+      onUsage?.(result.usage);
       try {
         const pricing = await loadCodexPricing();
         result.usage.history = await getCodexUsageHistory(codexHome, appConfig?.remoteHistory, pricing);

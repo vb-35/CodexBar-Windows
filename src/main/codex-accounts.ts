@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { spawn } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import {
   CodexAccountIdentity,
   CodexAccountOperationResult,
@@ -29,6 +29,31 @@ interface ResolvedCodexAccountTarget {
 
 const LOGIN_POLL_MS = 1500;
 const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
+const REMOTE_AUTH_SYNC_SCRIPT = [
+  'import os, re, shutil, sys, tempfile',
+  'home = os.path.expanduser(sys.argv[1])',
+  'os.makedirs(home, mode=0o700, exist_ok=True)',
+  'def backup(path):',
+  '    destination = path + ".codexbar-backup"',
+  '    if os.path.isfile(path) and not os.path.exists(destination): shutil.copy2(path, destination); os.chmod(destination, 0o600)',
+  'def replace(path, data):',
+  '    fd, temporary = tempfile.mkstemp(prefix="." + os.path.basename(path) + ".", suffix=".tmp", dir=home)',
+  '    try:',
+  '        with os.fdopen(fd, "wb") as handle: handle.write(data)',
+  '        os.chmod(temporary, 0o600)',
+  '        os.replace(temporary, path)',
+  '    except BaseException:',
+  '        try: os.unlink(temporary)',
+  '        except OSError: pass',
+  '        raise',
+  'config = os.path.join(home, "config.toml")',
+  'current = open(config, encoding="utf-8").read() if os.path.exists(config) else ""',
+  String.raw`configured = 'cli_auth_credentials_store = "file"\n' + re.sub(r"(?m)^[ \t]*cli_auth_credentials_store[ \t]*=.*(?:\n|$)", "", current)`,
+  'if configured != current: backup(config); replace(config, configured.encode())',
+  'target = os.path.join(home, "auth.json")',
+  'backup(target)',
+  'replace(target, sys.stdin.buffer.read())',
+].join('\n');
 
 export function getCodexAccountsConfig(config: CodexBarConfig): CodexAccountsConfig {
   return {
@@ -155,7 +180,10 @@ export function importCodexAccount(config: CodexBarConfig, importPath: string): 
   return success(updated.config, updated.message, updated.account);
 }
 
-export function setActiveCodexAccount(config: CodexBarConfig, accountId?: string): CodexAccountOperationResult {
+export function setActiveCodexAccount(
+  config: CodexBarConfig,
+  accountId?: string,
+): CodexAccountOperationResult {
   const reconciled = reconcileCodexAccountsConfig(config);
   if (accountId && !(reconciled.codexAccounts?.accounts || []).some((account) => account.id === accountId)) {
     return fail(reconciled, 'Selected Codex account was not found.');
@@ -168,10 +196,49 @@ export function setActiveCodexAccount(config: CodexBarConfig, accountId?: string
       activeAccountId: accountId,
     },
   };
-  return success(updated, accountId ? 'Active Codex account updated.' : 'CodexBar now uses the ambient system account.');
+
+  const message = accountId ? 'Active Codex account updated.' : 'CodexBar now uses the ambient system account.';
+  return success(updated, message);
 }
 
-export function promoteCodexAccountToSystem(config: CodexBarConfig, accountId: string): CodexAccountOperationResult {
+export async function syncRemoteCodexAuth(
+  remote: NonNullable<CodexBarConfig['remoteHistory']>,
+  authPath: string,
+): Promise<void> {
+  const auth = fs.readFileSync(authPath);
+  // Use a separate command and bracketed pattern so pkill cannot match the auth-sync command or its own shell.
+  await new Promise<void>((resolve, reject) => {
+    execFile('ssh', [
+      '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', '--', remote.sshTarget,
+      'exec pkill -9 -u "$USER" -f \'[c]odex\'',
+    ], { timeout: 15000, maxBuffer: 1024 * 1024, windowsHide: true }, (error, _stdout, stderr) => {
+      if (error && error.code !== 1) reject(new Error(stderr.trim() || error.message));
+      else resolve(); // pkill returns 1 when no matching process is running.
+    });
+  });
+  const remoteCommand = `python3 -c ${quoteRemoteArgument(REMOTE_AUTH_SYNC_SCRIPT)} ${quoteRemoteArgument(remote.codexHome || '~/.codex')}`;
+
+  return new Promise((resolve, reject) => {
+    const child = execFile('ssh', [
+      '-T',
+      '-o', 'BatchMode=yes',
+      '-o', 'ConnectTimeout=5',
+      '--',
+      remote.sshTarget,
+      remoteCommand,
+    ], { timeout: 15000, maxBuffer: 1024 * 1024, windowsHide: true }, (error, _stdout, stderr) => {
+      if (error) reject(new Error(stderr.trim() || error.message));
+      else resolve();
+    });
+    child.stdin?.end(auth);
+  });
+}
+
+export async function promoteCodexAccountToSystem(
+  config: CodexBarConfig,
+  accountId: string,
+  syncRemote: typeof syncRemoteCodexAuth = syncRemoteCodexAuth,
+): Promise<CodexAccountOperationResult> {
   const reconciled = reconcileCodexAccountsConfig(config);
   const accounts = reconciled.codexAccounts?.accounts || [];
   const target = accounts.find((account) => account.id === accountId);
@@ -187,6 +254,15 @@ export function promoteCodexAccountToSystem(config: CodexBarConfig, accountId: s
   const systemHome = getDefaultCodexHome();
   const systemAuthPath = getAuthFilePath(systemHome);
   const previousSystemAuth = loadAuthFile(systemAuthPath);
+  let remoteError: unknown;
+
+  if (reconciled.remoteHistory?.sshTarget) {
+    try {
+      await syncRemote(reconciled.remoteHistory, targetAuth.authPath);
+    } catch (error) {
+      remoteError = error;
+    }
+  }
 
   fs.mkdirSync(systemHome, { recursive: true });
   const tempAuthPath = path.join(systemHome, `auth.${Date.now()}.tmp`);
@@ -199,7 +275,8 @@ export function promoteCodexAccountToSystem(config: CodexBarConfig, accountId: s
     } catch {
       // ignore cleanup failures
     }
-    return fail(reconciled, `Failed to replace ambient Codex auth: ${formatError(error)}`);
+    const remoteStatus = reconciled.remoteHistory?.sshTarget && !remoteError ? ' Remote account was already updated.' : '';
+    return fail(reconciled, `Failed to replace ambient Codex auth: ${formatError(error)}${remoteStatus}`);
   }
 
   let updatedConfig = reconciled;
@@ -221,7 +298,11 @@ export function promoteCodexAccountToSystem(config: CodexBarConfig, accountId: s
     },
   });
 
-  return success(updatedConfig, 'Codex system account updated.', target);
+  return success(updatedConfig, remoteError
+    ? `Codex system account updated locally. Remote account switch failed: ${formatError(remoteError)}`
+    : reconciled.remoteHistory?.sshTarget
+    ? 'Codex system account updated locally and remotely.'
+    : 'Codex system account updated.', target);
 }
 
 export async function reauthenticateCodexAccount(config: CodexBarConfig, accountId: string): Promise<CodexAccountOperationResult> {
@@ -470,4 +551,8 @@ function escapeForCmd(value: string): string {
 
 function escapeForPowerShell(value: string): string {
   return value.replace(/'/g, "''");
+}
+
+function quoteRemoteArgument(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
 }

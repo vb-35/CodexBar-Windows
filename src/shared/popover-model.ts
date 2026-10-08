@@ -51,6 +51,7 @@ export interface PopoverProviderData {
   iconColor: string;
   primary?: PopoverUsageWindow;
   secondary?: PopoverUsageWindow;
+  additionalWindows?: PopoverUsageWindow[];
   credits?: PopoverCredits;
   resetCredits?: PopoverResetCreditsInfo;
   planType?: string;
@@ -141,7 +142,7 @@ export function getProviderSectionVisibility(data?: PopoverProviderData): Provid
   const showHistory = Boolean(data.history && (data.history.local || data.history.remote));
 
   return {
-    hasAnyData: Boolean(data.error || showPrimary || showSecondary || showResetCredits || showCredits || showHistory),
+    hasAnyData: Boolean(data.error || showPrimary || showSecondary || data.additionalWindows?.length || showResetCredits || showCredits || showHistory),
     showPrimary,
     showSecondary,
     showResetCredits,

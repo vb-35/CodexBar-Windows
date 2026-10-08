@@ -207,17 +207,6 @@ class Totals {
     );
   }
 
-  adjustedByInherited(inherited: Totals | null): Totals {
-    if (!inherited) {
-      return new Totals(this.input, this.cached, this.output);
-    }
-    return new Totals(
-      Math.max(0, this.input - inherited.input),
-      Math.max(0, this.cached - inherited.cached),
-      Math.max(0, this.output - inherited.output)
-    );
-  }
-
   isZero(): boolean {
     return this.input === 0 && this.cached === 0 && this.output === 0;
   }
@@ -322,10 +311,9 @@ function totalDeltaLessThanEqual(a: Totals, b: Totals): boolean {
   return a.input <= b.input && a.cached <= b.cached && a.output <= b.output;
 }
 
-function loadJsonlObjects(filePath: string): any[] {
+async function loadJsonlObjects(filePath: string): Promise<any[]> {
   try {
-    if (!fs.existsSync(filePath)) return [];
-    const content = fs.readFileSync(filePath, 'utf-8');
+    const content = await fs.promises.readFile(filePath, 'utf-8');
     const lines = content.split('\n');
     const objects: any[] = [];
     for (const line of lines) {
@@ -432,17 +420,17 @@ function tokenSnapshots(objects: any[]): Array<[Date, Totals]> {
   return snapshots;
 }
 
-function inheritedTotalsFor(
+async function inheritedTotalsFor(
   sessionId: string,
   forkTimestamp: string | null,
   sessionFileById: Record<string, string>,
   snapshotCache: Record<string, Array<[Date, Totals]>>
-): Totals | null {
+): Promise<Totals | null> {
   const parentPath = sessionFileById[sessionId];
   if (!parentPath) return null;
 
   if (!snapshotCache[sessionId]) {
-    snapshotCache[sessionId] = tokenSnapshots(loadJsonlObjects(parentPath));
+    snapshotCache[sessionId] = tokenSnapshots(await loadJsonlObjects(parentPath));
   }
 
   const snapshots = snapshotCache[sessionId];
@@ -460,44 +448,34 @@ function inheritedTotalsFor(
   return inherited;
 }
 
-function findJsonlFiles(dir: string, fileList: string[] = []): string[] {
-  if (!fs.existsSync(dir)) return fileList;
+async function findJsonlFiles(dir: string, fileList: string[]): Promise<void> {
   try {
-    const files = fs.readdirSync(dir);
+    const files = await fs.promises.readdir(dir, { withFileTypes: true });
     for (const file of files) {
-      const filePath = path.join(dir, file);
-      const stat = fs.statSync(filePath);
-      if (stat.isDirectory()) {
-        findJsonlFiles(filePath, fileList);
-      } else if (file.endsWith('.jsonl')) {
+      const filePath = path.join(dir, file.name);
+      if (file.isDirectory()) {
+        await findJsonlFiles(filePath, fileList);
+      } else if (file.isFile() && file.name.endsWith('.jsonl')) {
         fileList.push(filePath);
       }
     }
   } catch (err) {
     // silent
   }
-  return fileList;
 }
 
-function iterCodexFiles(codexHome: string, includeArchived = true): string[] {
+async function iterCodexFiles(codexHome: string): Promise<string[]> {
   const files: string[] = [];
-  const sessionsRoot = path.join(codexHome, 'sessions');
-  if (fs.existsSync(sessionsRoot)) {
-    findJsonlFiles(sessionsRoot, files);
-  }
-  if (includeArchived) {
-    const archivedRoot = path.join(codexHome, 'archived_sessions');
-    if (fs.existsSync(archivedRoot)) {
-      findJsonlFiles(archivedRoot, files);
-    }
+  for (const directory of ['sessions', 'archived_sessions']) {
+    await findJsonlFiles(path.join(codexHome, directory), files);
   }
   return files.sort();
 }
 
-function buildSessionIndex(files: string[]): Record<string, string> {
+async function buildSessionIndex(files: string[]): Promise<Record<string, string>> {
   const sessionFileById: Record<string, string> = {};
   for (const filePath of files) {
-    const [sessionId] = parseSessionMeta(loadJsonlObjects(filePath));
+    const [sessionId] = parseSessionMeta(await loadJsonlObjects(filePath));
     if (sessionId) {
       sessionFileById[sessionId] = filePath;
     }
@@ -505,19 +483,19 @@ function buildSessionIndex(files: string[]): Record<string, string> {
   return sessionFileById;
 }
 
-function scanCodexRows(codexHome: string, includeArchived: boolean, pricing: CodexPricingTable): UsageRow[] {
-  const files = iterCodexFiles(codexHome, includeArchived);
-  const sessionFileById = buildSessionIndex(files);
+async function scanCodexRows(codexHome: string, pricing: CodexPricingTable): Promise<UsageRow[]> {
+  const files = await iterCodexFiles(codexHome);
+  const sessionFileById = await buildSessionIndex(files);
   const snapshotCache: Record<string, Array<[Date, Totals]>> = {};
   const rows: UsageRow[] = [];
 
   for (const filePath of files) {
-    const objects = loadJsonlObjects(filePath);
+    const objects = await loadJsonlObjects(filePath);
     const [sessionId, forkedFromId, forkTimestamp] = parseSessionMeta(objects);
     
     let inheritedTotals: Totals | null = null;
     if (forkedFromId) {
-      inheritedTotals = inheritedTotalsFor(
+      inheritedTotals = await inheritedTotalsFor(
         forkedFromId,
         forkTimestamp,
         sessionFileById,
@@ -600,7 +578,7 @@ function scanCodexRows(codexHome: string, includeArchived: boolean, pricing: Cod
             toInt(total.cached_input_tokens || total.cache_read_input_tokens),
             toInt(total.output_tokens)
           );
-          const currentTotals = rawTotals.adjustedByInherited(inheritedTotals);
+          const currentTotals = rawTotals.deltaFrom(inheritedTotals);
           const totalDelta = currentTotals.deltaFrom(rawTotalsBaseline);
           if (
             !remainingInherited &&
@@ -624,7 +602,7 @@ function scanCodexRows(codexHome: string, includeArchived: boolean, pricing: Cod
           toInt(total.cached_input_tokens || total.cache_read_input_tokens),
           toInt(total.output_tokens)
         );
-        const currentTotals = rawTotals.adjustedByInherited(inheritedTotals);
+        const currentTotals = rawTotals.deltaFrom(inheritedTotals);
         delta = currentTotals.deltaFrom(rawTotalsBaseline);
         previousTotals = (previousTotals || new Totals()).add(delta);
         rawTotalsBaseline = currentTotals;
@@ -663,7 +641,7 @@ export async function getCodexUsageHistory(
 ): Promise<ProviderUsageHistory> {
   let rows: UsageRow[] = [];
   try {
-    rows = scanCodexRows(codexHome, true, pricing);
+    rows = await scanCodexRows(codexHome, pricing);
   } catch (err) {
     console.error('Error scanning Codex session rows:', err);
   }

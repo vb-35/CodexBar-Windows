@@ -21,19 +21,21 @@ import {
   addCodexAccountViaLogin,
   getCodexAccountState,
   importCodexAccount,
-  promoteCodexAccountToSystem,
   reauthenticateCodexAccount,
   reconcileCodexAccountsConfig,
   removeCodexAccount,
   setActiveCodexAccount,
 } from './codex-accounts';
 import { loadConfig, saveConfig } from './config';
+import { getClaudeAccountState, importClaudeAccount, loginClaudeAccount, removeClaudeAccount, selectClaudeAccount } from './claude-accounts';
+import { promoteWithDesktopRestart } from './codex-desktop';
 import { shutdownCodex } from './providers/codex';
 import { getAllMetadata } from './providers/registry';
 import { CodexBarConfig, ProviderDisplayData } from './providers/types';
 import { RefreshManager } from './refresh';
 import { IPC_CHANNELS } from '../shared/ipc-channels';
 import { isAllowedExternalUrl } from '../shared/external-url';
+import { CodexAccountOperationResult } from '../shared/codex-accounts';
 
 let tray: Tray | null = null;
 let mainWindow: BrowserWindow | null = null;
@@ -177,7 +179,7 @@ function buildTrayMenuTemplate(): MenuItemConstructorOptions[] {
   const systemSubmenu: MenuItemConstructorOptions[] = accountState.accounts.map((account) => ({
     label: formatTrayAccountLabel(account.label, account.id === accountState.systemAccountId, account.id === accountState.activeAccountId),
     enabled: !codexAccountOperationInFlight && account.id !== accountState.systemAccountId,
-    click: () => runCodexAccountOperation(() => Promise.resolve(promoteCodexAccountToSystem(currentConfig, account.id))),
+    click: () => makeSystemAccount(account.id),
   }));
 
   if (systemSubmenu.length === 0) {
@@ -190,14 +192,14 @@ function buildTrayMenuTemplate(): MenuItemConstructorOptions[] {
       type: 'radio',
       checked: !accountState.activeAccountId,
       enabled: !codexAccountOperationInFlight,
-      click: () => runCodexAccountOperation(() => Promise.resolve(setActiveCodexAccount(currentConfig, undefined))),
+      click: () => runCodexAccountOperation(() => setActiveCodexAccount(currentConfig, undefined)),
     },
     ...accountState.accounts.map((account) => ({
       label: account.label,
       type: 'radio' as const,
       checked: account.id === accountState.activeAccountId,
       enabled: !codexAccountOperationInFlight,
-      click: () => runCodexAccountOperation(() => Promise.resolve(setActiveCodexAccount(currentConfig, account.id))),
+      click: () => runCodexAccountOperation(() => setActiveCodexAccount(currentConfig, account.id)),
     })),
   ];
 
@@ -280,13 +282,40 @@ function setupIPC(): void {
   ipcMain.handle(IPC_CHANNELS.CODEX_ACCOUNT_ADD, () => runCodexAccountOperation(() => addCodexAccountViaLogin(currentConfig)));
   ipcMain.handle(IPC_CHANNELS.CODEX_ACCOUNT_IMPORT, () => importCodexAccountFromPicker());
   ipcMain.handle(IPC_CHANNELS.CODEX_ACCOUNT_SELECT_ACTIVE, (_event, accountId?: string) =>
-    runCodexAccountOperation(() => Promise.resolve(setActiveCodexAccount(currentConfig, accountId))));
+    runCodexAccountOperation(() => setActiveCodexAccount(currentConfig, accountId)));
   ipcMain.handle(IPC_CHANNELS.CODEX_ACCOUNT_PROMOTE_SYSTEM, (_event, accountId: string) =>
-    runCodexAccountOperation(() => Promise.resolve(promoteCodexAccountToSystem(currentConfig, accountId))));
+    makeSystemAccount(accountId));
   ipcMain.handle(IPC_CHANNELS.CODEX_ACCOUNT_REAUTH, (_event, accountId: string) =>
     runCodexAccountOperation(() => reauthenticateCodexAccount(currentConfig, accountId)));
   ipcMain.handle(IPC_CHANNELS.CODEX_ACCOUNT_REMOVE, (_event, accountId: string) =>
-    runCodexAccountOperation(() => Promise.resolve(removeCodexAccount(currentConfig, accountId))));
+    runCodexAccountOperation(() => removeCodexAccount(currentConfig, accountId)));
+
+  ipcMain.handle(IPC_CHANNELS.CLAUDE_ACCOUNT_ACTION, (_event, action: string, accountId?: string) => {
+    if (action === 'get') return getClaudeAccountState(currentConfig);
+    return runCodexAccountOperation(async () => {
+      if (accountId !== undefined && typeof accountId !== 'string') throw new Error('Invalid Claude account ID.');
+      switch (action) {
+        case 'add': return loginClaudeAccount(currentConfig);
+        case 'select': return selectClaudeAccount(currentConfig, accountId);
+        case 'reauth':
+          if (!accountId) throw new Error('Select a Claude account to re-authenticate.');
+          return loginClaudeAccount(currentConfig, accountId);
+        case 'remove':
+          if (!accountId) throw new Error('Select a Claude account to remove.');
+          return removeClaudeAccount(currentConfig, accountId);
+        case 'import': {
+          const options: OpenDialogOptions = { title: 'Import Claude Code .credentials.json', properties: ['openFile'],
+            filters: [{ name: 'JSON Files', extensions: ['json'] }] };
+          const selected = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+          if (selected.canceled || !selected.filePaths.length) return {
+            ok: false, message: 'Import canceled.', state: getClaudeAccountState(currentConfig),
+          };
+          return importClaudeAccount(currentConfig, selected.filePaths[0]);
+        }
+        default: throw new Error('Unknown Claude account action.');
+      }
+    }, 'claude');
+  });
 
   ipcMain.on(IPC_CHANNELS.OPEN_EXTERNAL, (_event, url: string) => {
     if (isAllowedExternalUrl(url)) shell.openExternal(url);
@@ -298,19 +327,42 @@ function setupIPC(): void {
   });
 }
 
+function makeSystemAccount(accountId: string): Promise<CodexAccountOperationResult> {
+  return runCodexAccountOperation(() => promoteWithDesktopRestart(currentConfig, accountId, async () => {
+    const options: Electron.MessageBoxOptions = {
+      type: 'question',
+      title: 'Switch ChatGPT account',
+      message: 'Are you ready to close ChatGPT?',
+      detail: 'ChatGPT will be force closed to switch accounts, then reopened. Finish any ongoing work before continuing.',
+      buttons: ['Yes', 'No'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    };
+    const answer = mainWindow
+      ? await dialog.showMessageBox(mainWindow, options)
+      : await dialog.showMessageBox(options);
+    return answer.response === 0;
+  }));
+}
+
 async function runCodexAccountOperation(
-  operation: () => Promise<any>,
-): Promise<any> {
+  operation: () => CodexAccountOperationResult | Promise<CodexAccountOperationResult>,
+  provider: 'codex' | 'claude' = 'codex',
+): Promise<CodexAccountOperationResult> {
+  if (codexAccountOperationInFlight) {
+    return { ok: false, message: 'Another account action is in progress.', state: provider === 'claude' ? getClaudeAccountState(currentConfig) : getCodexAccountState(currentConfig) };
+  }
   codexAccountOperationInFlight = true;
   rebuildTrayMenu();
   try {
     const result = await operation();
-    if (result?.config) {
+    if (result.ok && result.config) {
       currentConfig = reconcileCodexAccountsConfig(result.config as CodexBarConfig);
       persistConfig();
       refreshManager?.updateConfig(currentConfig);
-      await refreshManager?.refresh();
       mainWindow?.webContents.send(IPC_CHANNELS.CONFIG_CHANGED, makeRendererConfigPayload());
+      void refreshManager?.refresh(false);
     }
     return result;
   } finally {
@@ -319,15 +371,13 @@ async function runCodexAccountOperation(
   }
 }
 
-async function importCodexAccountFromPicker(): Promise<any> {
+function importCodexAccountFromPicker(): Promise<CodexAccountOperationResult> {
   const dialogOptions: OpenDialogOptions = {
     title: 'Import Codex auth.json',
     properties: ['openFile'],
     filters: [{ name: 'JSON Files', extensions: ['json'] }],
   };
-  codexAccountOperationInFlight = true;
-  rebuildTrayMenu();
-  try {
+  return runCodexAccountOperation(async () => {
     const selected = mainWindow
       ? await dialog.showOpenDialog(mainWindow, dialogOptions)
       : await dialog.showOpenDialog(dialogOptions);
@@ -340,11 +390,8 @@ async function importCodexAccountFromPicker(): Promise<any> {
       };
     }
 
-    return runCodexAccountOperation(() => Promise.resolve(importCodexAccount(currentConfig, selected.filePaths[0])));
-  } finally {
-    codexAccountOperationInFlight = false;
-    rebuildTrayMenu();
-  }
+    return importCodexAccount(currentConfig, selected.filePaths[0]);
+  });
 }
 
 function persistConfig(): void {
@@ -367,6 +414,7 @@ function makeRendererConfigPayload() {
     },
     providerMetadata: getAllMetadata(),
     codexAccountState: getCodexAccountState(currentConfig),
+    claudeAccountState: getClaudeAccountState(currentConfig),
   };
 }
 

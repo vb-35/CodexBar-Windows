@@ -3,6 +3,8 @@ const ALLOWED_EXTERNAL_HOSTS = new Set([
   'codexbar.app',
   'github.com',
   'status.openai.com',
+  'claude.ai',
+  'status.claude.com',
 ]);
 
 export function isAllowedExternalUrl(value: string): boolean {

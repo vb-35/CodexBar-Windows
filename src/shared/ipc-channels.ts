@@ -18,6 +18,7 @@ export const enum IPC_CHANNELS {
   CODEX_ACCOUNT_PROMOTE_SYSTEM = 'codexbar:codex-account-promote-system',
   CODEX_ACCOUNT_REAUTH = 'codexbar:codex-account-reauth',
   CODEX_ACCOUNT_REMOVE = 'codexbar:codex-account-remove',
+  CLAUDE_ACCOUNT_ACTION = 'codexbar:claude-account-action',
   NAVIGATE = 'codexbar:navigate',
   WINDOW_VISIBILITY = 'codexbar:window-visibility',
 }

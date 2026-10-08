@@ -16,7 +16,10 @@ const REFRESH_OPTIONS = [
 export function SettingsView({ onBack }: SettingsViewProps) {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [saving, setSaving] = useState(false);
-  const [accountState, setAccountState] = useState<CodexAccountState | null>(null);
+  const [accountProvider, setAccountProvider] = useState<'codex' | 'claude'>('codex');
+  const isClaude = accountProvider === 'claude';
+  const providerName = isClaude ? 'Claude' : 'Codex';
+  const accountState = (isClaude ? config?.claudeAccountState : config?.codexAccountState) || null;
   const [accountMessage, setAccountMessage] = useState<string | null>(null);
   const [accountBusy, setAccountBusy] = useState(false);
   const [remoteMessage, setRemoteMessage] = useState<string | null>(null);
@@ -27,39 +30,39 @@ export function SettingsView({ onBack }: SettingsViewProps) {
 
     api.getConfig().then((nextConfig) => {
       setConfig(nextConfig);
-      setAccountState(nextConfig.codexAccountState);
+    });
+    return api.onConfigChanged((nextConfig) => {
+      setConfig((current) => current ? { ...current, codexAccountState: nextConfig.codexAccountState, claudeAccountState: nextConfig.claudeAccountState } : nextConfig);
     });
   }, []);
 
   const refreshAccounts = useCallback(async () => {
-    const nextState = await window.electronAPI.getCodexAccounts();
-    setAccountState(nextState);
-    setConfig((current) => current ? { ...current, codexAccountState: nextState } : current);
-  }, []);
+    const nextState = await (isClaude ? window.electronAPI.getClaudeAccounts : window.electronAPI.getCodexAccounts)();
+    setConfig((current) => current ? { ...current, [isClaude ? 'claudeAccountState' : 'codexAccountState']: nextState } : current);
+  }, [isClaude]);
 
   const runAccountAction = useCallback(async (action: () => Promise<{ ok: boolean; message: string; state: CodexAccountState }>) => {
     setAccountBusy(true);
     setAccountMessage(null);
     try {
       const result = await action();
-      setAccountState(result.state);
-      setConfig((current) => current ? { ...current, codexAccountState: result.state } : current);
+      setConfig((current) => current ? { ...current, [isClaude ? 'claudeAccountState' : 'codexAccountState']: result.state } : current);
       setAccountMessage(result.message);
     } catch (error) {
       setAccountMessage(error instanceof Error ? error.message : 'Account action failed.');
     } finally {
       setAccountBusy(false);
     }
-  }, []);
+  }, [isClaude]);
 
-  const handleToggleProvider = useCallback(async (enabled: boolean) => {
+  const handleToggleProvider = useCallback(async (providerId: string, enabled: boolean) => {
     if (!config) return;
 
     const updated = {
       ...config,
       enabledProviders: {
         ...config.enabledProviders,
-        codex: enabled,
+        [providerId]: enabled,
       },
     };
     setConfig(updated);
@@ -67,6 +70,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
     setSaving(true);
     try {
       await window.electronAPI.setConfig({ enabledProviders: updated.enabledProviders });
+      window.electronAPI.requestRefresh();
     } finally {
       setSaving(false);
     }
@@ -138,18 +142,23 @@ export function SettingsView({ onBack }: SettingsViewProps) {
       </div>
 
       <div className="settings-section">
-        <div className="settings-section-title">Codex Accounts</div>
+        <div className="settings-section-title">{providerName} Accounts</div>
+        <select className="settings-api-key-input" aria-label="Account provider" value={accountProvider} disabled={accountBusy}
+          onChange={(event) => { setAccountProvider(event.target.value as 'codex' | 'claude'); setAccountMessage(null); }}>
+          <option value="codex">Codex</option>
+          <option value="claude">Claude</option>
+        </select>
         <div className="settings-row">
           <div>
             <div className="settings-row-label">Active account</div>
-            <div className="settings-row-sublabel">Controls which Codex account usage refreshes against</div>
+            <div className="settings-row-sublabel">Controls which {providerName} account usage refreshes against</div>
           </div>
         </div>
         <select
           className="settings-api-key-input"
           disabled={accountBusy}
           value={activeSelection}
-          onChange={(event) => runAccountAction(() => window.electronAPI.setActiveCodexAccount(event.target.value || undefined))}
+          onChange={(event) => runAccountAction(() => (isClaude ? window.electronAPI.setActiveClaudeAccount : window.electronAPI.setActiveCodexAccount)(event.target.value || undefined))}
         >
           <option value="">Ambient system account</option>
           {codexAccounts.filter((account) => account.id !== accountState?.systemAccountId).map((account) => (
@@ -161,17 +170,17 @@ export function SettingsView({ onBack }: SettingsViewProps) {
           <div>
             <div className="settings-row-label">System account</div>
             <div className="settings-row-sublabel">
-              {accountState?.systemAccount ? accountState.systemAccount.label : 'No ambient ~/.codex/auth.json detected'}
+              {accountState?.systemAccount ? accountState.systemAccount.label : isClaude ? 'No Claude Code login detected' : 'No ambient ~/.codex/auth.json detected'}
             </div>
           </div>
         </div>
 
         <div className="settings-actions">
-          <button className="settings-action-btn" disabled={accountBusy} onClick={() => runAccountAction(() => window.electronAPI.addCodexAccount())}>
+          <button className="settings-action-btn" disabled={accountBusy} onClick={() => runAccountAction(() => (isClaude ? window.electronAPI.addClaudeAccount : window.electronAPI.addCodexAccount)())}>
             Add Account
           </button>
-          <button className="settings-action-btn" disabled={accountBusy} onClick={() => runAccountAction(() => window.electronAPI.importCodexAccount())}>
-            Import auth.json
+          <button className="settings-action-btn" disabled={accountBusy} onClick={() => runAccountAction(() => (isClaude ? window.electronAPI.importClaudeAccount : window.electronAPI.importCodexAccount)())}>
+            Import {isClaude ? 'credentials' : 'auth.json'}
           </button>
           <button className="settings-action-btn settings-action-btn--secondary" disabled={accountBusy} onClick={refreshAccounts}>
             Refresh
@@ -185,16 +194,16 @@ export function SettingsView({ onBack }: SettingsViewProps) {
               account={account}
               accountState={accountState}
               disabled={accountBusy}
-              onMakeSystem={() => runAccountAction(() => window.electronAPI.promoteCodexAccountToSystem(account.id))}
-              onReauthenticate={() => runAccountAction(() => window.electronAPI.reauthenticateCodexAccount(account.id))}
-              onRemove={() => runAccountAction(() => window.electronAPI.removeCodexAccount(account.id))}
+              onMakeSystem={isClaude ? undefined : () => runAccountAction(() => window.electronAPI.promoteCodexAccountToSystem(account.id))}
+              onReauthenticate={() => runAccountAction(() => (isClaude ? window.electronAPI.reauthenticateClaudeAccount : window.electronAPI.reauthenticateCodexAccount)(account.id))}
+              onRemove={() => runAccountAction(() => (isClaude ? window.electronAPI.removeClaudeAccount : window.electronAPI.removeCodexAccount)(account.id))}
             />
           ))}
         </div>
 
         {accountState?.missingSystemAuth && (
           <div className="text-muted" style={{ marginTop: '10px', fontSize: '12px' }}>
-            Ambient Codex auth is missing. CodexBar can still use managed accounts.
+            Ambient {providerName} auth is missing. CodexBar can still use managed accounts.
           </div>
         )}
 
@@ -206,24 +215,25 @@ export function SettingsView({ onBack }: SettingsViewProps) {
       </div>
 
       <div className="settings-section">
-        <div className="settings-section-title">Provider</div>
-        <div className="settings-row">
-          <div className="settings-row-label">Codex</div>
+        <div className="settings-section-title">Providers</div>
+        {config.providerMetadata?.map((provider) => <div className="settings-row" key={provider.id}>
+          <div className="settings-row-label">{provider.displayName}</div>
           <label className="toggle-switch">
             <input
               type="checkbox"
-              checked={config.enabledProviders.codex ?? true}
-              onChange={(event) => handleToggleProvider(event.target.checked)}
+              aria-label={`Enable ${provider.displayName}`}
+              checked={config.enabledProviders[provider.id] ?? true}
+              onChange={(event) => handleToggleProvider(provider.id, event.target.checked)}
             />
             <span className="toggle-slider" />
           </label>
-        </div>
+        </div>)}
       </div>
 
       <div className="settings-section">
         <div className="settings-section-title">Remote history</div>
         <div className="settings-row-sublabel" style={{ marginBottom: '10px' }}>
-          Uses your OpenSSH config and keys. Leave the target blank to disable it.
+          Uses your OpenSSH config and keys. Make System also updates the remote CLI login.
         </div>
         <input
           className="settings-api-key-input"
@@ -308,7 +318,7 @@ function AccountCard(
     account: CodexStoredAccount;
     accountState: CodexAccountState | null;
     disabled: boolean;
-    onMakeSystem: () => void;
+    onMakeSystem?: () => void;
     onReauthenticate: () => void;
     onRemove: () => void;
   },
@@ -323,7 +333,7 @@ function AccountCard(
         {isActive ? 'Active for CodexBar' : 'Stored managed account'}{isSystem ? ' • Matches system auth' : ''}
       </div>
       <div className="settings-actions settings-actions--card">
-        <button className="settings-action-btn" disabled={disabled || isSystem} onClick={onMakeSystem}>Make System</button>
+        {onMakeSystem && <button className="settings-action-btn" disabled={disabled || isSystem} onClick={onMakeSystem}>Make System</button>}
         <button className="settings-action-btn settings-action-btn--secondary" disabled={disabled} onClick={onReauthenticate}>Re-authenticate</button>
         <button className="settings-action-btn settings-action-btn--danger" disabled={disabled} onClick={onRemove}>Remove</button>
       </div>

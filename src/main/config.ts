@@ -88,6 +88,7 @@ function normalizeConfig(config: CodexBarConfig): CodexBarConfig {
     launchAtStartup: config.launchAtStartup ?? false,
     remoteHistory: config.remoteHistory,
     codexAccounts: config.codexAccounts,
+    claudeAccounts: config.claudeAccounts,
   });
 }
 

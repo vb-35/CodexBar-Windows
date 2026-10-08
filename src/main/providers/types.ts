@@ -4,19 +4,22 @@
  */
 
 /** Supported usage provider */
-export type UsageProviderId = 'codex';
+export type UsageProviderId = 'codex' | 'claude';
 
-/** A single rate-limit window snapshot */
-export interface UsageWindow {
-  /** Percentage of the limit used (0–100) */
-  usedPercent: number;
-  /** Unix timestamp (seconds) when this window resets */
-  resetAt: number;
-  /** Duration of the limit window in seconds */
-  limitWindowSeconds: number;
-  /** Human label: "Session", "Weekly", etc. */
-  label: string;
-}
+import type {
+  PopoverUsageWindow as UsageWindow,
+  PopoverUsageHistory as ProviderUsageHistory,
+  PopoverResetCreditsInfo as ResetCreditsInfo,
+} from '../../shared/popover-model';
+
+export type {
+  PopoverUsageWindow as UsageWindow,
+  PopoverUsageHistoryPeriod as UsageHistoryPeriod,
+  PopoverUsageHistory as ProviderUsageHistory,
+  PopoverResetCredit as ResetCredit,
+  PopoverResetCreditsInfo as ResetCreditsInfo,
+  PopoverProviderData as ProviderDisplayData,
+} from '../../shared/popover-model';
 
 /** Credits/balance snapshot */
 export interface CreditsSnapshot {
@@ -25,43 +28,11 @@ export interface CreditsSnapshot {
   updatedAt: number;
 }
 
-export interface UsageHistoryPeriod {
-  tokensUsed: number;
-  requestsCount: number;
-  estimatedCostUSD: number;
-}
-
-export interface ProviderUsageHistory {
-  local?: {
-    today: UsageHistoryPeriod;
-    yesterday: UsageHistoryPeriod;
-    week: UsageHistoryPeriod;
-    month30: UsageHistoryPeriod;
-  };
-  remote?: {
-    today: UsageHistoryPeriod;
-    yesterday: UsageHistoryPeriod;
-    week: UsageHistoryPeriod;
-    month30: UsageHistoryPeriod;
-  };
-}
-
-export interface ResetCredit {
-  status: string;
-  grantedAt: string;
-  expiresAt: string;
-  expiresAtTimestamp?: number; // unix timestamp in seconds
-}
-
-export interface ResetCreditsInfo {
-  availableCount: number;
-  credits: ResetCredit[];
-}
-
 /** Full usage snapshot for a single provider */
 export interface UsageSnapshot {
   primary?: UsageWindow;
   secondary?: UsageWindow;
+  additionalWindows?: UsageWindow[];
   credits?: CreditsSnapshot;
   resetCredits?: ResetCreditsInfo;
   planType?: string;
@@ -111,30 +82,14 @@ export interface CodexBarConfig {
   launchAtStartup?: boolean;
   remoteHistory?: RemoteHistoryConfig;
   codexAccounts?: import('../../shared/codex-accounts').CodexAccountsConfig;
-}
-
-/** Data sent to the renderer for display */
-export interface ProviderDisplayData {
-  providerId: string;
-  displayName: string;
-  iconColor: string;
-  primary?: UsageWindow;
-  secondary?: UsageWindow;
-  credits?: { remaining: number; unlimited: boolean };
-  resetCredits?: ResetCreditsInfo;
-  planType?: string;
-  error?: string;
-  updatedAt?: number;
-  sourceLabel?: string;
-  identity?: string;
-  history?: ProviderUsageHistory;
+  claudeAccounts?: import('../../shared/codex-accounts').CodexAccountsConfig;
 }
 
 /** Provider fetch interface — all providers implement this */
 export interface ProviderFetcher {
   readonly id: UsageProviderId;
   readonly metadata: ProviderMetadata;
-  fetch(config: ProviderConfig, appConfig?: CodexBarConfig): Promise<ProviderFetchResult>;
+  fetch(config: ProviderConfig, appConfig?: CodexBarConfig, onUsage?: (usage: UsageSnapshot) => void): Promise<ProviderFetchResult>;
 }
 
 /** Codex-specific OAuth credentials (from ~/.codex/auth.json) */

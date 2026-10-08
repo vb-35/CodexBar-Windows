@@ -30,6 +30,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   getConfig: () => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_GET),
+  onConfigChanged: (callback: (config: unknown) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, config: unknown) => callback(config);
+    ipcRenderer.on(IPC_CHANNELS.CONFIG_CHANGED, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.CONFIG_CHANGED, handler);
+  },
   setConfig: (config: Record<string, unknown>) => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_SET, config),
   getCodexAccounts: () => ipcRenderer.invoke(IPC_CHANNELS.CODEX_ACCOUNTS_GET),
   addCodexAccount: () => ipcRenderer.invoke(IPC_CHANNELS.CODEX_ACCOUNT_ADD),
@@ -38,6 +43,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   promoteCodexAccountToSystem: (accountId: string) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_ACCOUNT_PROMOTE_SYSTEM, accountId),
   reauthenticateCodexAccount: (accountId: string) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_ACCOUNT_REAUTH, accountId),
   removeCodexAccount: (accountId: string) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_ACCOUNT_REMOVE, accountId),
+  getClaudeAccounts: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ACCOUNT_ACTION, 'get'),
+  addClaudeAccount: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ACCOUNT_ACTION, 'add'),
+  importClaudeAccount: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ACCOUNT_ACTION, 'import'),
+  setActiveClaudeAccount: (accountId?: string) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ACCOUNT_ACTION, 'select', accountId),
+  reauthenticateClaudeAccount: (accountId: string) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ACCOUNT_ACTION, 'reauth', accountId),
+  removeClaudeAccount: (accountId: string) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ACCOUNT_ACTION, 'remove', accountId),
 
   openExternal: (url: string) => {
     ipcRenderer.send(IPC_CHANNELS.OPEN_EXTERNAL, url);

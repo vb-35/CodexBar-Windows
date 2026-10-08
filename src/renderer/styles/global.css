@@ -96,8 +96,9 @@ button {
 .top-strip {
   display: flex;
   gap: 8px;
+  flex-shrink: 0;
   overflow-x: auto;
-  padding: 12px 14px 10px;
+  padding: 8px 14px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -132,14 +133,23 @@ button {
 
 .top-chip {
   flex: 0 0 auto;
-  max-width: 176px;
-  padding: 10px 16px;
-  border-radius: var(--radius-pill);
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 14px;
+  font-weight: 600;
   background: var(--bg-chip);
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.top-chip:focus-visible,
+.provider-tab:focus-visible {
+  outline: 2px solid var(--bg-chip-active);
+  outline-offset: 2px;
 }
 
 .top-chip--active {
@@ -154,16 +164,21 @@ button {
 .provider-tabs {
   display: flex;
   gap: 8px;
-  margin: 14px 0 10px;
+  flex-shrink: 0;
+  padding: 14px 14px 10px;
 }
 
 .provider-tab {
-  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 8px;
   border-radius: var(--radius-pill);
   background: rgba(0, 0, 0, 0.04);
   color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 600;
+  cursor: pointer;
 }
 
 .provider-tab--active {

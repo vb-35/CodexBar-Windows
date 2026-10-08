@@ -73,6 +73,11 @@ export function ProviderCard({ data, accountLabel, accountKindLabel }: ProviderC
         </div>
       )}
 
+      {data.additionalWindows?.map((window) => (
+        <SheetSection key={window.label} title={window.label} percent={100 - window.usedPercent}
+          resetAt={window.resetAt} detailLeft={`${Math.round(100 - window.usedPercent)}% left`} detailRight="Resets in" />
+      ))}
+
       {visibility.showHistory && localHistory && (
         <HistorySection title="Token Usage (local logs)" history={localHistory} />
       )}
