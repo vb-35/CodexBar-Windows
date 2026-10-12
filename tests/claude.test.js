@@ -260,6 +260,39 @@ test('Claude import, deduplication, selection, removal, and config reload stay s
   assert.equal(fs.existsSync(home), true);
 });
 
+test('renewed tokens still match their stored account and never produce duplicate tabs', async (t) => {
+  const home = tempHome(t);
+  const root = path.join(home, '.codexbar', 'claude-accounts');
+  const managed = (id, token, email, uuid) => {
+    const managedHome = path.join(root, id);
+    writeAuth(managedHome, token);
+    fs.writeFileSync(path.join(managedHome, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: email, accountUuid: uuid } }));
+    return { id, email, label: email, accountId: uuid, managedHomePath: managedHome, managedAuthPath: path.join(managedHome, '.credentials.json') };
+  };
+  writeAuth(path.join(home, '.claude'), 'cli-renewed-token');
+  fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'cli@example.com', accountUuid: 'cli-id' } }));
+  const stored = { ...config(), claudeAccounts: { activeAccountId: 'other-b', accounts: [
+    managed('cli', 'cli-old-token', 'cli@example.com', 'cli-id'),
+    managed('other-a', 'other-token-a', 'other@example.com', 'other-id'),
+    managed('other-b', 'other-token-b', 'other@example.com', 'other-id'),
+  ] } };
+  const state = accounts.getClaudeAccountState(stored);
+  assert.equal(state.systemAccountId, 'cli');
+  assert.deepEqual(state.accounts.map((account) => account.id), ['cli', 'other-b'], 'the selected duplicate is kept');
+  const tabs = require('../dist/shared/popover-model.js').buildAccountTabs(state);
+  assert.deepEqual(tabs.map((tab) => tab.id), ['system', 'other-b']);
+
+  const promoted = await accounts.promoteClaudeAccountToSystem(stored, 'other-b');
+  assert.equal(promoted.ok, true);
+  assert.equal(promoted.state.accounts.length, 2, 'the replaced CLI login is not stored a second time');
+  assert.equal(promoted.state.systemAccountId, 'other-b');
+
+  t.mock.method(global, 'fetch', async () => ({ ok: true, json: async () => ({ account: { email: 'cli@example.com', uuid: 'cli-id' } }) }));
+  const reimported = await accounts.importClaudeAccount(promoted.config, writeAuth(path.join(home, 'import'), 'cli-renewed-token'));
+  assert.equal(reimported.state.accounts.length, 2, 'importing a renewed copy updates the existing account');
+  assert.equal(fs.existsSync(path.join(root, 'cli')), false, 'the replaced credential copy is removed');
+});
+
 test('Claude reads ambient metadata, respects config overrides, and maps usage windows', async (t) => {
   const home = tempHome(t);
   writeAuth(path.join(home, '.claude'), 'system-token', { subscriptionType: 'max' });

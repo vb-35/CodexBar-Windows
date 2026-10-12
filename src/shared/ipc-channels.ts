@@ -4,6 +4,8 @@
 export const enum IPC_CHANNELS {
   REFRESH_REQUEST = 'codexbar:refresh-request',
   USAGE_UPDATE = 'codexbar:usage-update',
+  ACCOUNT_USAGE_GET = 'codexbar:account-usage-get',
+  ACCOUNT_USAGE_UPDATE = 'codexbar:account-usage-update',
   REFRESH_STARTED = 'codexbar:refresh-started',
   REFRESH_COMPLETED = 'codexbar:refresh-completed',
   CONFIG_GET = 'codexbar:config-get',

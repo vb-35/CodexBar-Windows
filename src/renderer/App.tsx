@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ProviderCard } from './components/ProviderCard';
 import { SettingsView } from './components/SettingsView';
 import { Icon } from './components/Icon';
-import { AppConfig, ProviderUsageData, useUsageData } from './hooks/useUsageData';
+import { AppConfig, ProviderUsageData, useAccountUsage, useUsageData } from './hooks/useUsageData';
 import {
   buildAccountTabs,
   getDefaultAccountTabId,
@@ -11,6 +11,7 @@ import {
 import { CodexAccountOperationResult, CodexAccountState } from '../shared/codex-accounts';
 import { useAccountClocks } from './hooks/useAccountClocks';
 import { ClockStatus } from './components/ClockStatus';
+import { AccountChip } from './components/AccountChip';
 
 type View = 'main' | 'settings';
 
@@ -21,6 +22,7 @@ function App() {
   const [selectedProviderId, setSelectedProviderId] = useState('');
   const [accountActionBusy, setAccountBusy] = useState(false);
   const clocks = useAccountClocks();
+  const accountUsage = useAccountUsage();
   const accountBusy = accountActionBusy || clocks.state.busy;
   const [accountMessage, setAccountMessage] = useState<string | null>(null);
 
@@ -116,21 +118,19 @@ function App() {
             {accountTabs.length > 0 && (
               <div className="top-strip" role="group" aria-label="Accounts">
                 {accountTabs.map((tab) => (
-                  <button
+                  <AccountChip
                     key={tab.id}
-                    className={`top-chip ${selectedAccountId === tab.id ? 'top-chip--active' : ''}`}
+                    label={Array.from(tab.label.trim())[0]?.toLocaleUpperCase() || '?'}
+                    title={`${tab.label} (${tab.subtitle})`}
+                    usage={selectedProvider ? accountUsage[selectedProvider.providerId]?.[tab.id] : undefined}
+                    active={selectedAccountId === tab.id}
+                    disabled={accountBusy}
                     onClick={() => {
                       if (tab.id !== selectedAccountId) {
                         void runAccountAction(() => (isClaude ? window.electronAPI.setActiveClaudeAccount : window.electronAPI.setActiveCodexAccount)(tab.id === 'system' ? undefined : tab.id));
                       }
                     }}
-                    disabled={accountBusy}
-                    title={`${tab.label} (${tab.subtitle})`}
-                    aria-label={`${tab.label} (${tab.subtitle})`}
-                    aria-pressed={selectedAccountId === tab.id}
-                  >
-                    {Array.from(tab.label.trim())[0]?.toLocaleUpperCase() || '?'}
-                  </button>
+                  />
                 ))}
               </div>
             )}

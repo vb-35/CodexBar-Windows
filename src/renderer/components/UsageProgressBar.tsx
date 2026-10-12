@@ -10,7 +10,7 @@ interface UsageProgressBarProps {
   hideLabel?: boolean;
 }
 
-function getTone(percent: number, isRemaining: boolean): 'good' | 'warn' | 'bad' {
+export function getTone(percent: number, isRemaining: boolean): 'good' | 'warn' | 'bad' {
   if (isRemaining) {
     if (percent <= 20) return 'bad';
     if (percent <= 50) return 'warn';

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { CodexAccountOperationResult, CodexAccountState, CodexAccountSwitchOptions } from '../../shared/codex-accounts';
 import { ClockState, ClockTarget } from '../../shared/account-clocks';
-import type { PopoverProviderMetadata, PopoverProviderData as ProviderUsageData } from '../../shared/popover-model';
+import type { AccountUsageMap, PopoverProviderMetadata, PopoverProviderData as ProviderUsageData } from '../../shared/popover-model';
 export type { PopoverProviderData as ProviderUsageData } from '../../shared/popover-model';
 
 export interface AppConfig {
@@ -24,6 +24,8 @@ export interface ElectronAPI {
   getClockState: () => Promise<ClockState>;
   onClockStateChanged: (callback: (state: ClockState) => void) => (() => void);
   onUsageUpdate: (callback: (data: Record<string, ProviderUsageData>) => void) => (() => void);
+  getAccountUsage: () => Promise<AccountUsageMap>;
+  onAccountUsageUpdate: (callback: (summaries: AccountUsageMap) => void) => (() => void);
   onRefreshStarted: (callback: () => void) => (() => void);
   onRefreshCompleted: (callback: () => void) => (() => void);
   requestRefresh: () => void;
@@ -86,4 +88,23 @@ export function useUsageData() {
   }, []);
 
   return { usageData, isRefreshing, requestRefresh };
+}
+
+export function useAccountUsage(): AccountUsageMap {
+  const [summaries, setSummaries] = useState<AccountUsageMap>({});
+
+  useEffect(() => {
+    const api = window.electronAPI;
+    if (!api) return;
+    let awaitingInitial = true;
+    const unsubscribe = api.onAccountUsageUpdate((next) => {
+      awaitingInitial = false;
+      setSummaries(next);
+    });
+    // A push that arrives first is newer than the initial snapshot.
+    void api.getAccountUsage().then((initial) => { if (awaitingInitial) setSummaries(initial); });
+    return unsubscribe;
+  }, []);
+
+  return summaries;
 }

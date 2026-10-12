@@ -164,3 +164,42 @@ export function getProviderMetadataMap(
 function getAccountLabel(account: CodexStoredAccount): string {
   return account.email || account.label || account.accountId || 'Managed Account';
 }
+
+export interface AccountUsageSummary {
+  session?: PopoverUsageWindow;
+  weekly?: PopoverUsageWindow;
+}
+
+/** Ring data keyed by provider id, then by account tab id. */
+export type AccountUsageMap = Record<string, Record<string, AccountUsageSummary>>;
+
+const DAY_SECONDS = 24 * 60 * 60;
+
+/** Picks the 5h and weekly windows; an idle session keeps its percentage but drops its reset time. */
+export function summarizeAccountUsage(data: Pick<PopoverProviderData, 'primary' | 'secondary'>, nowMs = Date.now()): AccountUsageSummary {
+  const windows = [data.primary, data.secondary].filter((window): window is PopoverUsageWindow => !!window);
+  const session = windows.find((window) => window.limitWindowSeconds > 0 && window.limitWindowSeconds < DAY_SECONDS);
+  const weekly = windows.find((window) => window.limitWindowSeconds >= DAY_SECONDS && window.limitWindowSeconds <= 8 * DAY_SECONDS);
+  const secondsLeft = session ? session.resetAt - nowMs / 1000 : 0;
+  // Codex reports a full-length window that restarts every poll while no session is running.
+  const running = session && secondsLeft > 0 && (session.usedPercent > 0 || secondsLeft < session.limitWindowSeconds - 60);
+  return {
+    session: session && { ...session, resetAt: running ? session.resetAt : 0 },
+    weekly,
+  };
+}
+
+/** Percentage left, treating a window whose reset has passed as fully restored. */
+export function getRemainingPercent(window: PopoverUsageWindow, nowMs = Date.now()): number {
+  if (window.resetAt > 0 && window.resetAt * 1000 <= nowMs) return 100;
+  return Math.max(0, Math.min(100, 100 - window.usedPercent));
+}
+
+export function formatSessionCountdown(window: PopoverUsageWindow | undefined, nowMs = Date.now()): string {
+  const seconds = window && window.resetAt > 0 ? Math.floor(window.resetAt - nowMs / 1000) : 0;
+  if (seconds <= 0) return '';
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours > 0) return `${hours}h${minutes.toString().padStart(2, '0')}`;
+  return minutes > 0 ? `${minutes}m` : '<1m';
+}

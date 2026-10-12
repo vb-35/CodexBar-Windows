@@ -34,6 +34,7 @@ import { shutdownCodex } from './providers/codex';
 import { getAllMetadata } from './providers/registry';
 import { CodexBarConfig, ProviderDisplayData } from './providers/types';
 import { RefreshManager } from './refresh';
+import { AccountUsagePoller } from './account-usage';
 import { getPopoverBounds, POPOVER_SIZE } from './popover-bounds';
 import { IPC_CHANNELS } from '../shared/ipc-channels';
 import { isAllowedExternalUrl } from '../shared/external-url';
@@ -44,6 +45,7 @@ import { getClockTargets, startAccountClock, startClocksSequentially } from './a
 let tray: Tray | null = null;
 let mainWindow: BrowserWindow | null = null;
 let refreshManager: RefreshManager | null = null;
+let accountUsagePoller: AccountUsagePoller | null = null;
 let currentConfig: CodexBarConfig;
 let codexAccountOperationInFlight = false;
 let clockState: ClockState = { busy: false, message: '', results: [] };
@@ -170,7 +172,7 @@ function buildTrayMenuTemplate(): MenuItemConstructorOptions[] {
   return [
     { label: 'Show CodexBar', click: () => toggleWindow() },
     { type: 'separator' },
-    { label: 'Refresh Now', click: () => refreshManager?.refresh() },
+    { label: 'Refresh Now', click: refreshAll },
     { label: 'Start All Clocks', enabled: !codexAccountOperationInFlight, click: () => { void startClocks(); } },
     { label: 'Open Codex Dashboard', click: () => shell.openExternal('https://chatgpt.com/codex/settings/usage') },
     { label: 'Open Claude Dashboard', click: () => shell.openExternal('https://claude.ai/settings/usage') },
@@ -197,9 +199,8 @@ function buildTrayMenuTemplate(): MenuItemConstructorOptions[] {
 }
 
 function setupIPC(): void {
-  ipcMain.on(IPC_CHANNELS.REFRESH_REQUEST, () => {
-    refreshManager?.refresh();
-  });
+  ipcMain.on(IPC_CHANNELS.REFRESH_REQUEST, refreshAll);
+  ipcMain.handle(IPC_CHANNELS.ACCOUNT_USAGE_GET, () => accountUsagePoller?.getSummaries() || {});
 
   ipcMain.handle(IPC_CHANNELS.CONFIG_GET, () => makeRendererConfigPayload());
 
@@ -244,6 +245,8 @@ function setupIPC(): void {
     }
 
     persistConfig();
+    // The poller must know the new selection before the refresh manager republishes cached data.
+    accountUsagePoller?.updateConfig(currentConfig);
     refreshManager?.updateConfig(currentConfig);
     mainWindow?.webContents.send(IPC_CHANNELS.CONFIG_CHANGED, makeRendererConfigPayload());
   });
@@ -299,7 +302,7 @@ async function startClocks(target?: ClockTarget): Promise<ClockState> {
     rebuildTrayMenu();
     if (!signal.aborted) {
       refreshManager?.invalidateCache();
-      void refreshManager?.refresh();
+      refreshAll();
     }
   }
 }
@@ -367,6 +370,8 @@ async function runCodexAccountOperation(
     if (result.ok && result.config) {
       currentConfig = reconcileCodexAccountsConfig(result.config as CodexBarConfig);
       persistConfig();
+      // The poller must know the new selection before the refresh manager republishes cached data.
+      accountUsagePoller?.updateConfig(currentConfig);
       refreshManager?.updateConfig(currentConfig);
       mainWindow?.webContents.send(IPC_CHANNELS.CONFIG_CHANGED, makeRendererConfigPayload());
       void refreshManager?.refresh(false);
@@ -399,6 +404,11 @@ function importCodexAccountFromPicker(): Promise<CodexAccountOperationResult> {
 
     return importCodexAccount(currentConfig, selected.filePaths[0]);
   });
+}
+
+function refreshAll(): void {
+  void refreshManager?.refresh();
+  void accountUsagePoller?.refresh();
 }
 
 function persistConfig(): void {
@@ -436,11 +446,15 @@ app.on('ready', () => {
   screen.on('display-metrics-changed', positionWindow);
   setupIPC();
 
+  accountUsagePoller = new AccountUsagePoller(currentConfig, (summaries) => {
+    mainWindow?.webContents.send(IPC_CHANNELS.ACCOUNT_USAGE_UPDATE, summaries);
+  });
   refreshManager = new RefreshManager(
     currentConfig,
     (data) => {
       mainWindow?.webContents.send(IPC_CHANNELS.USAGE_UPDATE, data);
       updateTrayIcon(data);
+      accountUsagePoller?.recordActive(data);
     },
     () => {
       mainWindow?.webContents.send(IPC_CHANNELS.REFRESH_STARTED);
@@ -451,6 +465,7 @@ app.on('ready', () => {
   );
 
   refreshManager.start();
+  accountUsagePoller.start();
 });
 
 app.on('window-all-closed', () => {
@@ -459,6 +474,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', (event) => {
   refreshManager?.stop();
+  accountUsagePoller?.stop();
   shutdownCodex();
   if (clockAbort && clockJob) {
     event.preventDefault();

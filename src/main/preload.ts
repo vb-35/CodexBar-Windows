@@ -13,6 +13,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.USAGE_UPDATE, handler);
   },
 
+  getAccountUsage: () => ipcRenderer.invoke(IPC_CHANNELS.ACCOUNT_USAGE_GET),
+  onAccountUsageUpdate: (callback: (summaries: Record<string, unknown>) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, summaries: Record<string, unknown>) => callback(summaries);
+    ipcRenderer.on(IPC_CHANNELS.ACCOUNT_USAGE_UPDATE, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.ACCOUNT_USAGE_UPDATE, handler);
+  },
+
   onRefreshStarted: (callback: () => void) => {
     const handler = () => callback();
     ipcRenderer.on(IPC_CHANNELS.REFRESH_STARTED, handler);

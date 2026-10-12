@@ -76,14 +76,27 @@ export function loadClaudeAuth(home = getDefaultClaudeHome()) {
   }
 }
 
+type ClaudeIdentity = { email?: string; accountId?: string; authFingerprint?: string };
+
+/** Access tokens change on every renewal, so prefer the account UUID, then the email, to recognize a login. */
+function sameClaudeAccount(left: ClaudeIdentity, right: ClaudeIdentity): boolean {
+  if (left.accountId && right.accountId) return left.accountId === right.accountId;
+  if (left.email && right.email) return left.email.toLowerCase() === right.email.toLowerCase();
+  return !!left.authFingerprint && left.authFingerprint === right.authFingerprint;
+}
+
 export function getClaudeAccountState(config: CodexBarConfig): AccountState {
   const system = loadClaudeAuth();
-  const accounts = (config.claudeAccounts?.accounts || []).map((account) => {
-    const auth = account.managedHomePath ? loadClaudeAuth(account.managedHomePath) : null;
-    return auth ? { ...account, email: auth.email || account.email, label: auth.email || account.label, authFingerprint: auth.authFingerprint } : account;
-  });
   const selected = config.claudeAccounts?.activeAccountId;
-  const systemAccountId = system ? accounts.find((account) => account.authFingerprint === system.authFingerprint)?.id : undefined;
+  const loaded = (config.claudeAccounts?.accounts || []).map((account) => {
+    const auth = account.managedHomePath ? loadClaudeAuth(account.managedHomePath) : null;
+    return auth ? { ...account, email: auth.email || account.email, label: auth.email || account.label,
+      accountId: auth.accountId || account.accountId, authFingerprint: auth.authFingerprint } : account;
+  });
+  // Older builds could store the same login twice; keep the selected copy, otherwise the first.
+  const accounts = loaded.filter((account, index) => !loaded.some((other, otherIndex) => otherIndex !== index
+    && sameClaudeAccount(account, other) && (other.id === selected || (account.id !== selected && otherIndex < index))));
+  const systemAccountId = system ? accounts.find((account) => sameClaudeAccount(account, system))?.id : undefined;
   return {
     accounts,
     // Private credentials can renew independently even when their email matches the CLI login.
@@ -96,7 +109,9 @@ export function getClaudeAccountState(config: CodexBarConfig): AccountState {
 
 export function resolveActiveClaudeHome(config?: CodexBarConfig): string {
   const state = getClaudeAccountState(config || { version: 1, providers: [] });
-  return state.accounts.find((account) => account.id === state.activeAccountId)?.managedHomePath || getDefaultClaudeHome();
+  // A selected private copy of the CLI login keeps its independently renewed credentials.
+  const selected = state.activeAccountId || config?.claudeAccounts?.activeAccountId;
+  return state.accounts.find((account) => account.id === selected)?.managedHomePath || getDefaultClaudeHome();
 }
 
 function result(config: CodexBarConfig, ok: boolean, message: string): AccountResult {
@@ -129,8 +144,8 @@ async function storeAccount(config: CodexBarConfig, home: string, preferredId?: 
     } catch { /* Account usage still works when profile metadata is unavailable. */ }
   }
   const accounts = getClaudeAccountState(config).accounts;
-  const existing = accounts.find((account) => account.id === preferredId || account.authFingerprint === auth.authFingerprint
-    || (!!auth.email && account.email === auth.email));
+  const existing = accounts.find((account) => account.id === preferredId)
+    || accounts.find((account) => sameClaudeAccount(account, auth));
   const now = new Date().toISOString();
   const account: StoredAccount = {
     id: existing?.id || randomUUID(), source: 'managed', email: auth.email || existing?.email,
@@ -145,6 +160,11 @@ async function storeAccount(config: CodexBarConfig, home: string, preferredId?: 
     fs.writeFileSync(profilePath, JSON.stringify({ ...profile, oauthAccount: {
       ...profile.oauthAccount, emailAddress: auth.email, accountUuid: auth.accountId,
     } }, null, 2), { mode: 0o600 });
+  }
+  // Re-authentication writes to a fresh directory, so the replaced copy is no longer referenced.
+  const previousHome = existing?.managedHomePath && path.resolve(existing.managedHomePath);
+  if (previousHome && previousHome !== path.resolve(home) && path.dirname(previousHome) === path.resolve(getAccountsRoot())) {
+    fs.rmSync(previousHome, { recursive: true, force: true });
   }
   return result({ ...config, claudeAccounts: {
     accounts: existing ? accounts.map((item) => item.id === existing.id ? account : item) : [...accounts, account],
@@ -315,7 +335,8 @@ export async function promoteClaudeAccountToSystem(config: CodexBarConfig, accou
     const oauthAccount = managedProfile || { emailAddress: target.email || auth.email, accountUuid: target.accountId || auth.accountId };
     const previous = loadClaudeAuth(systemHome);
     const accounts = [...state.accounts];
-    if (previous && previous.authFingerprint !== auth.authFingerprint && !accounts.some((item) => item.authFingerprint === previous.authFingerprint)) {
+    if (previous && !sameClaudeAccount(previous, { ...auth, accountId: target.accountId || auth.accountId, email: target.email || auth.email })
+      && !accounts.some((item) => sameClaudeAccount(item, previous))) {
       const id = randomUUID();
       const home = path.join(getAccountsRoot(), id);
       fs.mkdirSync(home, { recursive: true });
