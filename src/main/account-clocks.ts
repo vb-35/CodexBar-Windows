@@ -86,26 +86,34 @@ export async function startAccountClock(config: CodexBarConfig, target: ClockTar
     if (provider === 'codex' ? !codexAuth?.raw.tokens || !!codexAuth.raw.OPENAI_API_KEY : !loadClaudeAuth(home)) {
       throw new Error('A subscription login is required. Re-authenticate this account in Settings.');
     }
-    if (await confirmClock(provider, home!, signal, 1)) return 'Already running; skipped.';
-    signal.throwIfAborted();
-    const binary = provider === 'codex' ? resolveCodexBinary() : resolveClaudeBinary();
-    if (!binary) throw new Error(`${provider === 'codex' ? 'Codex' : 'Claude Code'} CLI is not installed.`);
-    try {
-      await sendInteractiveClock(provider, binary, home!, cwd, signal);
-    } catch (error) {
-      signal.throwIfAborted();
-      // A missed terminal reply must not report failure when the clock actually started.
-      if (await confirmClock(provider, home!, signal, 1).catch(() => false)) return 'Clock running.';
-      throw error;
-    }
-    try {
-      if (await confirmClock(provider, home!, signal)) return 'Clock running.';
-      throw new Error('The provider has not reported an active clock yet.');
-    } catch (error) {
-      throw new Error(`Message delivered; clock could not be verified. ${error instanceof Error ? error.message : 'Refresh usage to check.'}`);
-    }
+    return await runClockSession(provider, home!, cwd, () => provider === 'codex' ? resolveCodexBinary() : resolveClaudeBinary(), signal);
   } finally {
     fs.rmSync(scratch, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 });
+  }
+}
+
+/** Skips running clocks, then messages the isolated CLI profile and verifies the clock with the provider. */
+export async function runClockSession(
+  provider: ClockProvider, home: string, cwd: string, resolveBinary: () => string | null | undefined, signal: AbortSignal,
+  options: { precheck?: boolean; spawn?: Parameters<typeof sendInteractiveClock>[5] } = {},
+): Promise<string> {
+  if (options.precheck !== false && await confirmClock(provider, home, signal, 1)) return 'Already running; skipped.';
+  signal.throwIfAborted();
+  const binary = resolveBinary();
+  if (!binary) throw new Error(`${provider === 'codex' ? 'Codex' : 'Claude Code'} CLI is not installed.`);
+  try {
+    await sendInteractiveClock(provider, binary, home, cwd, signal, options.spawn);
+  } catch (error) {
+    signal.throwIfAborted();
+    // A missed terminal reply must not report failure when the clock actually started.
+    if (await confirmClock(provider, home, signal, 1).catch(() => false)) return 'Clock running.';
+    throw error;
+  }
+  try {
+    if (await confirmClock(provider, home, signal)) return 'Clock running.';
+    throw new Error('The provider has not reported an active clock yet.');
+  } catch (error) {
+    throw new Error(`Message delivered; clock could not be verified. ${error instanceof Error ? error.message : 'Refresh usage to check.'}`);
   }
 }
 

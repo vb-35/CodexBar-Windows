@@ -15,6 +15,23 @@ An unofficial Windows system-tray simpler port of [CodexBar](https://github.com/
 
 The clock button beside Refresh checks all saved accounts and starts idle clocks one at a time. The clock button in the bottom account actions starts the selected account; Settings also has a button on each account. Each activation sends `Reply OK.` through an isolated interactive CLI using GPT-6-Luna with low reasoning or Claude Haiku 5.5 with low effort. This uses a small amount of subscription usage and requires an installed, authenticated CLI. The system login stays unchanged, and failures are reported per account.
 
+## Linux clock starter
+
+`scripts/linux/install-clocks.sh` installs a headless version of the clock button on an Ubuntu machine. Every day at 07:00 and 12:30 (machine local time) it checks the default Codex (`~/.codex/auth.json`) and Claude Code (`~/.claude/.credentials.json`) subscription login of root and every regular user, and starts idle clocks the same way the tray app does.
+
+```sh
+git clone <this repository> && cd CodexBar-Windows
+sudo bash scripts/linux/install-clocks.sh            # pins the latest CLI versions
+sudo bash scripts/linux/install-clocks.sh --claude-version <version> --codex-version <version>   # or pin explicitly
+```
+
+The installer needs Node.js 22 or newer installed system-wide, and it installs `build-essential` if node-pty has to be compiled. It installs to `/opt/codexbar-clocks` and enables `codexbar-clocks.timer`. Use `node /opt/codexbar-clocks/dist/main/linux-clocks.js --dry-run [--user <name>]` to list the logins it would use, and `journalctl -u codexbar-clocks.service` to see results.
+
+- **Users' logins stay as they are.** Each user is handled by a worker running as that user, so root never reads or writes their files. The worker copies the login into a private temporary profile and runs the CLI with a throwaway `HOME`. Tokens the CLI renews are written back only when the user's login file is unchanged since the copy, so a switch or re-login during the run always wins.
+- **Pinned CLIs.** The script uses its own copies in `/opt/codexbar-clocks/cli`, with self-updates disabled, so user installs and CLI updates cannot change its behavior. Re-run the installer to move to newer versions.
+- **Opt-out.** A user can create `~/.codexbar-no-clock` to be skipped.
+- **Uninstall.** Run `sudo systemctl disable --now codexbar-clocks.timer`, remove `/etc/systemd/system/codexbar-clocks.*` and `/opt/codexbar-clocks`, then run `sudo systemctl daemon-reload`.
+
 ## Privacy and credentials
 
 CodexBar has no telemetry. Codex requests are sent directly to OpenAI endpoints.

@@ -7,17 +7,19 @@ import type { ClockProvider } from '../shared/account-clocks';
 
 const quote = (value: string) => `'${value.replace(/'/g, "''")}'`;
 
-export function clockLaunch(provider: ClockProvider, binary: string, home: string, cwd: string) {
+export function clockLaunch(provider: ClockProvider, binary: string, home: string, cwd: string, platform = process.platform) {
   const args = provider === 'codex'
     ? ['--no-daemon', '--no-alt-screen', '-m', 'gpt-6-luna', '-s', 'read-only', '-C', cwd,
       '-c', 'model_reasoning_effort=low', '-c', 'cli_auth_credentials_store=file', '-c', 'check_for_update_on_startup=false']
     : ['--model', 'claude-haiku-5-5', '--effort', 'low', '--ax-screen-reader', '--tools', '',
       '--settings', path.join(cwd, 'clock-settings.json'), '--strict-mcp-config', '--mcp-config', path.join(cwd, 'clock-mcp.json')];
-  const command = `& ${[binary, ...args].map(quote).join(' ')}; exit $LASTEXITCODE`;
   const env = { ...process.env, TERM: 'xterm-256color', [provider === 'codex' ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR']: home };
   for (const key of Object.keys(env)) {
     if (/^(OPENAI_API_KEY|CODEX_API_KEY|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|ANTHROPIC_BASE_URL|CLAUDE_CODE_OAUTH_TOKEN.*|CLAUDE_CODE_USE_.*|CLAUDECODE|ELECTRON_RUN_AS_NODE|CI)$/i.test(key)) delete env[key];
   }
+  // POSIX PTYs exec the CLI directly; only Windows needs a shell to run .cmd shims.
+  if (platform !== 'win32') return { file: binary, args, env, cwd };
+  const command = `& ${[binary, ...args].map(quote).join(' ')}; exit $LASTEXITCODE`;
   return { file: 'powershell.exe', args: ['-NoLogo', '-NoProfile', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')], env, cwd };
 }
 

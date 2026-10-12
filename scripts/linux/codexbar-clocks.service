@@ -1,0 +1,11 @@
+[Unit]
+Description=Start idle Codex and Claude subscription clocks for local users
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=@NODE@ @PREFIX@/dist/main/linux-clocks.js
+# Private profiles are created under a /tmp only this service can see.
+PrivateTmp=yes
+TimeoutStartSec=2h
