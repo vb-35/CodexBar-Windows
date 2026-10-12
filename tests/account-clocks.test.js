@@ -27,7 +27,7 @@ test('clock launches use isolated interactive sessions and cheaper models, with 
   const keys = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDECODE'];
   for (const key of keys) { const old = process.env[key]; process.env[key] = 'override'; t.after(() => old === undefined ? delete process.env[key] : process.env[key] = old); }
   for (const provider of ['codex', 'claude']) {
-    const launch = clockLaunch(provider, "C:\\O'Brien\\cli.cmd", 'private-home', "C:\\scratch O'Brien");
+    const launch = clockLaunch(provider, "C:\\O'Brien\\cli.cmd", 'private-home', "C:\\scratch O'Brien", 'win32');
     const command = Buffer.from(launch.args.at(-1), 'base64').toString('utf16le');
     assert.match(command, /O''Brien/);
     assert.doesNotMatch(command, /Reply OK|'-p'|'--print'|'exec'/);
