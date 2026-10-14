@@ -1,9 +1,23 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFile } from 'child_process';
+import { createZstdDecompress } from 'zlib';
 import { ProviderUsageHistory, RemoteHistoryConfig, UsageHistoryPeriod } from '../types';
 import { getDefaultCodexHome } from './auth';
 import { CodexPricingTable, FALLBACK_CODEX_PRICING } from './pricing';
+
+async function decompressZstd(bytes: Buffer): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  // Older Node/Electron versions stop after one frame, even when more follow.
+  while (bytes.length > 0) {
+    const decoder = createZstdDecompress();
+    decoder.end(bytes);
+    for await (const chunk of decoder) chunks.push(chunk);
+    if (decoder.bytesWritten === 0) throw new Error('Invalid Zstandard session');
+    bytes = bytes.subarray(decoder.bytesWritten);
+  }
+  return Buffer.concat(chunks);
+}
 
 interface RemoteDaily {
   date: string;
@@ -17,6 +31,12 @@ interface RemoteData {
 
 const REMOTE_HISTORY_SCRIPT = String.raw`import json, os, sys
 from datetime import datetime, timezone
+try:
+ from compression import zstd
+except ImportError:
+ try: import zstandard as zstd
+ except ImportError: zstd=None
+read_errors=(OSError,EOFError)+((zstd.ZstdError,) if zstd else ())
 
 P=json.loads(__PRICING_JSON__)
 Z=(0,0,0)
@@ -36,14 +56,17 @@ def stamp(v):
  except (AttributeError,ValueError): return None
 def load(p):
  out=[]
+ if p.endswith(".zst") and zstd is None:
+  raise RuntimeError("Compressed Codex history requires Python compression.zstd or the zstandard package on the remote host")
  try:
-  with open(p,encoding="utf-8",errors="replace") as f:
+  opener=zstd.open if p.endswith(".zst") else open
+  with opener(p,mode="rt",encoding="utf-8",errors="replace") as f:
    for line in f:
     try:
      o=json.loads(line)
      if isinstance(o,dict): out.append(o)
     except (json.JSONDecodeError,TypeError): pass
- except OSError: pass
+ except read_errors: return []
  return out
 def meta(objs):
  for o in objs:
@@ -93,7 +116,9 @@ files=[]
 for root in ("sessions","archived_sessions"):
  base=os.path.join(home,root)
  for directory,_,names in os.walk(base):
-  files.extend(os.path.join(directory,n) for n in names if n.endswith(".jsonl"))
+  files.extend(os.path.join(directory,n) for n in names if n.endswith((".jsonl",".jsonl.zst")))
+file_set=set(files)
+files=[f for f in files if not f.endswith(".zst") or f[:-4] not in file_set]
 files.sort(); objects={f:load(f) for f in files}; by_id={}
 for f,objs in objects.items():
  sid,_,_=meta(objs)
@@ -313,7 +338,8 @@ function totalDeltaLessThanEqual(a: Totals, b: Totals): boolean {
 
 async function loadJsonlObjects(filePath: string): Promise<any[]> {
   try {
-    const content = await fs.promises.readFile(filePath, 'utf-8');
+    const bytes = await fs.promises.readFile(filePath);
+    const content = (filePath.endsWith('.zst') ? await decompressZstd(bytes) : bytes).toString('utf-8');
     const lines = content.split('\n');
     const objects: any[] = [];
     for (const line of lines) {
@@ -455,7 +481,7 @@ async function findJsonlFiles(dir: string, fileList: string[]): Promise<void> {
       const filePath = path.join(dir, file.name);
       if (file.isDirectory()) {
         await findJsonlFiles(filePath, fileList);
-      } else if (file.isFile() && file.name.endsWith('.jsonl')) {
+      } else if (file.isFile() && (file.name.endsWith('.jsonl') || file.name.endsWith('.jsonl.zst'))) {
         fileList.push(filePath);
       }
     }
@@ -469,7 +495,9 @@ async function iterCodexFiles(codexHome: string): Promise<string[]> {
   for (const directory of ['sessions', 'archived_sessions']) {
     await findJsonlFiles(path.join(codexHome, directory), files);
   }
-  return files.sort();
+  // A resumed session may temporarily have both copies; prefer the writable JSONL.
+  const fileSet = new Set(files);
+  return files.filter((file) => !file.endsWith('.zst') || !fileSet.has(file.slice(0, -4))).sort();
 }
 
 async function buildSessionIndex(files: string[]): Promise<Record<string, string>> {

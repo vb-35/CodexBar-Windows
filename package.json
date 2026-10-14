@@ -1,6 +1,6 @@
 {
   "name": "codexbar-windows",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "Codex usage limits in your Windows system tray",
   "main": "dist/main/index.js",
   "scripts": {
@@ -18,7 +18,7 @@
   },
   "license": "MIT",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.15.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.0",

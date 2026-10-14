@@ -4,6 +4,60 @@ const childProcess = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { zstdCompressSync, constants } = require('node:zlib');
+
+function compressedHistoryFixture(t) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codexbar-zstd-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const timestamp = new Date().toISOString();
+  const record = (tokens) => JSON.stringify({ type: 'event_msg', timestamp, payload: {
+    type: 'token_count', info: { total_token_usage: { input_tokens: tokens, output_tokens: 10, cached_input_tokens: 80 } },
+  } });
+  const context = JSON.stringify({ type: 'turn_context', timestamp, payload: { model: 'gpt-5.6-sol' } });
+  const write = (name, content) => {
+    const file = path.join(home, name);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, content);
+  };
+  const compress = (content) => zstdCompressSync(content, { params: { [constants.ZSTD_c_contentSizeFlag]: 0 } });
+  const plain = [context, record(100)].join('\n');
+  write('sessions/nested/plain.jsonl', plain);
+  write('sessions/nested/plain.jsonl.zst', compress(plain));
+  write('sessions/nested/compressed.jsonl.zst', Buffer.concat([
+    compress(context + '\nmalformed line\n'), compress(record(200) + '\n' + record(200)),
+  ]));
+  write('archived_sessions/archived.jsonl.zst', compress([context, record(300)].join('\n')));
+  write('sessions/broken.jsonl.zst', 'not zstd');
+  return home;
+}
+
+test('compressed active and archived sessions include usage and costs without duplicate copies', async (t) => {
+  const home = compressedHistoryFixture(t);
+  const { getCodexUsageHistory } = require('../dist/main/providers/codex/history.js');
+  const history = await getCodexUsageHistory(home);
+  assert.equal(history.local.today.tokensUsed, 630);
+  assert.equal(history.local.today.requestsCount, 3);
+  assert.ok(Math.abs(history.local.today.estimatedCostUSD - 0.00282) < 1e-12);
+  assert.deepEqual(history.local.month30, history.local.today);
+});
+
+test('SSH calculator reads the same compressed sessions as local history', async (t) => {
+  const python = ['python3', 'python'].find((binary) => childProcess.spawnSync(binary, ['-c',
+    'try:\n from compression import zstd\nexcept ImportError:\n import zstandard',
+  ], { windowsHide: true }).status === 0);
+  if (!python) return t.skip('Python with Zstandard support is required to verify the remote calculator');
+  const home = compressedHistoryFixture(t);
+  t.mock.method(childProcess, 'execFile', (_binary, _args, _options, callback) => ({ stdin: { end(input) {
+    const result = childProcess.spawnSync(python, ['-', home], { input, encoding: 'utf8', windowsHide: true });
+    assert.equal(result.status, 0, result.stderr);
+    callback(null, result.stdout, '');
+  } } }));
+  const { getCodexUsageHistory } = require('../dist/main/providers/codex/history.js');
+  const history = await getCodexUsageHistory(home, { sshTarget: 'fixture.test' });
+  assert.equal(history.remote.today.tokensUsed, 630);
+  assert.equal(history.remote.today.tokensUsed, history.local.today.tokensUsed);
+  assert.equal(history.remote.today.estimatedCostUSD, history.local.today.estimatedCostUSD);
+});
 
 const pricingMarkdown = `
 ### Standard pricing data

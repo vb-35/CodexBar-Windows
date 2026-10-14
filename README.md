@@ -7,6 +7,7 @@ An unofficial Windows system-tray simpler port of [CodexBar](https://github.com/
 ## Features
 
 - Codex usage windows, reset times, account switching, and local session history.
+- Codex history includes active and archived `.jsonl` and Zstandard-compressed `.jsonl.zst` sessions, counting uncompressed/compressed copies only once.
 - Claude subscription usage windows, including Sonnet and Opus limits, with separate account switching and local token/cost history.
 - Add, import, select, re-authenticate, remove, and make CLI accounts for both providers. Both have tray account menus and dashboard shortcuts.
 - Compact account initials in the header; hover to see the account email.
@@ -33,6 +34,7 @@ or import a Claude Code `.credentials.json` through the Claude tab or Settings â
 - Claude costs are standard API-equivalent estimates using bundled [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing) verified on October 8, 2026, including cache reads and five-minute/one-hour cache writes. They are not subscription charges. Unknown model prices are shown as unavailable or partially unpriced.
 - When remote history is configured, **Make CLI Account** also updates that provider's remote login. Codex selects file-based storage and replaces `auth.json`; Claude replaces `.credentials.json` and updates `oauthAccount` in `.claude.json` while preserving unrelated settings. For the default `~/.claude` home, the profile is `~/.claude.json`; custom homes keep it inside that directory. Original remote auth and config/profile files are preserved once with `.codexbar-backup` suffixes. Claude writes credentials and backups with owner-only permissions and attempts to restore both files if replacement fails.
 - Remote history uses the system `ssh` client, your existing SSH config/keys, and Python 3 on the remote host. The bundled calculator is piped to Python over SSH and returns only aggregate JSON; it is not stored remotely.
+- Compressed remote Codex history requires Python's `compression.zstd` module (Python 3.14+) or the `zstandard` package. Local compressed history works with the bundled app runtime.
 
 Configure an SSH alias or `user@host` and the remote Codex and Claude homes in Settings (defaults: `~/.codex` and `~/.claude`). Remote Claude history uses the remote transcript directory and reports connection failures without hiding local totals. Leave the SSH target blank to disable remote history.
 
@@ -40,7 +42,7 @@ Do not use the application on a shared Windows account unless you accept that lo
 
 ## Development
 
-Requires Node.js 22 or newer and npm.
+Requires Node.js 22.15.0 or newer and npm.
 
 ```powershell
 npm ci
